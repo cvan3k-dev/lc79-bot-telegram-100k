@@ -3,25 +3,65 @@ const axios = require('axios');
 require('dotenv').config();
 
 // ===== KIỂM TRA BIẾN MÔI TRƯỜNG =====
+console.log('🔍 Đang kiểm tra cấu hình...');
+
 const token = process.env.BOT_TOKEN;
 const adminKey = process.env.ADMIN_KEY;
 const API_URL = process.env.API_URL;
 
-if (!token || !adminKey || !API_URL) {
-    console.error('❌ Thiếu biến môi trường! Kiểm tra file .env');
+if (!token) {
+    console.error('❌ THIẾU BOT_TOKEN! Kiểm tra file .env');
+    process.exit(1);
+}
+if (!adminKey) {
+    console.error('❌ THIẾU ADMIN_KEY! Kiểm tra file .env');
+    process.exit(1);
+}
+if (!API_URL) {
+    console.error('❌ THIẾU API_URL! Kiểm tra file .env');
     process.exit(1);
 }
 
-const bot = new TelegramBot(token, { polling: true });
-console.log('🤖 Bot đang khởi động...');
+console.log('✅ Cấu hình OK');
+console.log(`📡 API_URL: ${API_URL.substring(0, 30)}...`);
+console.log(`🔑 Admin Key: ${adminKey}`);
+
+// ===== KHỞI TẠO BOT =====
+let bot;
+try {
+    bot = new TelegramBot(token, { 
+        polling: {
+            interval: 300,
+            autoStart: true,
+            params: {
+                timeout: 10
+            }
+        }
+    });
+    console.log('✅ Bot khởi tạo thành công!');
+} catch (error) {
+    console.error('❌ Lỗi khởi tạo bot:', error.message);
+    process.exit(1);
+}
+
+// ===== BẮT LỖI POLLING =====
+bot.on('polling_error', (error) => {
+    console.error('⚠️ Polling error:', error.message);
+    if (error.message.includes('403')) {
+        console.error('❌ TOKEN KHÔNG HỢP LỆ! Kiểm tra lại BOT_TOKEN');
+    }
+});
+
+bot.on('webhook_error', (error) => {
+    console.error('⚠️ Webhook error:', error.message);
+});
 
 // ============================================================
-// 🧠 CLASS ULTRA DICE PREDICTION SYSTEM (RÚT GỌN - GIỮ NGUYÊN THUẬT TOÁN)
+// 🧠 CLASS ULTRA DICE PREDICTION SYSTEM
 // ============================================================
 class UltraDicePredictionSystem {
     constructor() {
         this.history = [];
-        this.patternDatabase = new Map();
         this.models = {};
         this.weights = {};
         this.performance = {};
@@ -32,7 +72,6 @@ class UltraDicePredictionSystem {
             bias: { T: 0, X: 0 },
             predictions: { total: 0, correct: 0, accuracy: 0 }
         };
-        this.marketState = { trend: 'neutral', momentum: 0, stability: 0.5, regime: 'normal' };
         this.maxHistorySize = 50;
         this.initAllModels();
     }
@@ -94,14 +133,13 @@ class UltraDicePredictionSystem {
         this.sessionStats.entropy = entropy;
     }
 
-    // -------- MODEL 1: Nhận biết cầu cơ bản --------
+    // -------- MODELS 1-21 (GIỮ NGUYÊN THUẬT TOÁN) --------
     model1() {
         const patterns = this.detectBasicPatterns();
         if (patterns.length === 0) return null;
         return { prediction: patterns[0].prediction, confidence: 0.7, reason: `Pattern ${patterns[0].name}` };
     }
 
-    // -------- MODEL 2: Bắt trend --------
     model2() {
         const shortTerm = this.analyzeTrend(10);
         const longTerm = this.analyzeTrend(30);
@@ -111,21 +149,18 @@ class UltraDicePredictionSystem {
         return { prediction: longTerm.direction, confidence: longTerm.strength, reason: 'Trend dài hạn' };
     }
 
-    // -------- MODEL 3: Chênh lệch --------
     model3() {
         const analysis = this.analyzeImbalance(12);
         if (analysis.imbalance < 0.4) return null;
         return { prediction: analysis.prediction, confidence: analysis.imbalance * 0.8, reason: 'Chênh lệch cao' };
     }
 
-    // -------- MODEL 4: Cầu ngắn hạn --------
     model4() {
         const analysis = this.analyzeShortTermPattern(6);
         if (analysis.confidence < 0.6) return null;
         return { prediction: analysis.prediction, confidence: analysis.confidence, reason: 'Cầu ngắn hạn' };
     }
 
-    // -------- MODEL 5: Cân bằng trọng số --------
     model5() {
         const predictions = this.getAllPredictions();
         let tCount = 0, xCount = 0;
@@ -144,7 +179,6 @@ class UltraDicePredictionSystem {
         return null;
     }
 
-    // -------- MODEL 6: Bẻ cầu --------
     model6() {
         const streak = this.calculateCurrentStreak();
         const breakProb = this.calculateBreakProbability();
@@ -154,7 +188,6 @@ class UltraDicePredictionSystem {
         return { prediction: this.history[this.history.length - 1], confidence: 0.6, reason: 'Tiếp streak' };
     }
 
-    // -------- MODEL 7-21: GIỮ NGUYÊN --------
     model7() { return null; }
     model8() {
         const randomness = this.measureRandomness(30);
@@ -433,13 +466,20 @@ class UltraDicePredictionSystem {
 }
 
 // ============================================================
-// 📊 QUẢN LÝ LỊCH SỬ 50 PHIÊN
+// 📊 QUẢN LÝ LỊCH SỬ
 // ============================================================
 const predictionSystem = new UltraDicePredictionSystem();
 let sessionHistory = [];
-let lastPrediction = { prediction: 'Chưa có', confidence: '0%', reasons: [] };
+let lastPrediction = { prediction: 'Chưa có', confidence: '0%', reasons: ['Đang cập nhật...'] };
+let isUpdating = false;
 
 async function fetchAndUpdate() {
+    if (isUpdating) {
+        console.log('⏳ Đang cập nhật, bỏ qua...');
+        return lastPrediction;
+    }
+    
+    isUpdating = true;
     try {
         console.log('🔄 Đang lấy dữ liệu từ API...');
         const response = await axios.get(API_URL, { timeout: 10000 });
@@ -447,23 +487,21 @@ async function fetchAndUpdate() {
         
         if (!data.list || data.list.length === 0) {
             console.log('⚠️ Không có dữ liệu từ API');
+            isUpdating = false;
             return null;
         }
 
-        // Lấy 50 phiên mới nhất
         const latestSessions = data.list.slice(0, 50);
         console.log(`✅ Lấy được ${latestSessions.length} phiên`);
 
-        // Reset history của prediction system
+        // Reset và cập nhật history
         predictionSystem.history = [];
-        
-        // Cập nhật history
         for (const item of latestSessions.reverse()) {
             const result = item.resultTruyenThong === "TAI" ? 'T' : 'X';
             predictionSystem.addResult(result);
         }
 
-        // Dự đoán cho phiên tiếp theo
+        // Dự đoán
         const pred = predictionSystem.getFinalPrediction();
         const predictionStr = pred.prediction === 'T' ? 'Tài' : 'Xỉu';
         lastPrediction = {
@@ -474,14 +512,12 @@ async function fetchAndUpdate() {
 
         // Xây dựng lịch sử dự đoán đúng/sai
         const newHistory = [];
-        const sortedSessions = latestSessions; // Đã đảo ngược ở trên
+        const sortedSessions = latestSessions;
         
         for (let i = 0; i < Math.min(50, sortedSessions.length); i++) {
             const item = sortedSessions[i];
             const actual = item.resultTruyenThong === "TAI" ? 'Tài' : 'Xỉu';
             
-            // Dùng model dự đoán cho phiên này (dựa trên lịch sử trước đó)
-            // Tạo một instance tạm để dự đoán từng phiên
             const tempSystem = new UltraDicePredictionSystem();
             for (let j = 0; j < i; j++) {
                 const prevResult = sortedSessions[j].resultTruyenThong === "TAI" ? 'T' : 'X';
@@ -502,10 +538,14 @@ async function fetchAndUpdate() {
         }
         
         sessionHistory = newHistory.slice(0, 50);
-        console.log(`✅ Đã cập nhật lịch sử ${sessionHistory.length} phiên`);
+        console.log(`✅ Đã cập nhật ${sessionHistory.length} phiên`);
+        console.log(`🎯 Dự đoán: ${lastPrediction.prediction} (${lastPrediction.confidence})`);
+        
+        isUpdating = false;
         return lastPrediction;
     } catch (error) {
         console.error('❌ Lỗi fetch API:', error.message);
+        isUpdating = false;
         return null;
     }
 }
@@ -514,9 +554,15 @@ async function fetchAndUpdate() {
 // 🤖 TELEGRAM BOT COMMANDS
 // ============================================================
 
+// Log khi bot nhận được tin nhắn
+bot.on('message', (msg) => {
+    console.log(`📩 Nhận tin nhắn từ ${msg.from.username || msg.from.id}: ${msg.text}`);
+});
+
 // Command /start
 bot.onText(/\/start/, (msg) => {
     const chatId = msg.chat.id;
+    console.log(`✅ Xử lý /start từ ${chatId}`);
     bot.sendMessage(chatId, 
         `🎲 *SunWin AI Prediction Bot*\n\n` +
         `📌 *Lệnh:*\n` +
@@ -524,78 +570,100 @@ bot.onText(/\/start/, (msg) => {
         `/lich_su - Xem 20 phiên gần nhất\n` +
         `/thong_ke - Thống kê tổng quan\n` +
         `/admin [key] - Đăng nhập admin\n` +
-        `/reset - Reset hệ thống (admin)\n` +
         `/help - Hướng dẫn`,
         { parse_mode: 'Markdown' }
-    );
+    ).catch(err => console.error('❌ Lỗi gửi tin nhắn:', err.message));
 });
 
 // Command /du_doan
 bot.onText(/\/du_doan/, async (msg) => {
     const chatId = msg.chat.id;
-    const result = await fetchAndUpdate();
-    if (!result) {
-        bot.sendMessage(chatId, '❌ Không thể lấy dữ liệu. Thử lại sau.');
-        return;
+    console.log(`✅ Xử lý /du_doan từ ${chatId}`);
+    
+    try {
+        const result = await fetchAndUpdate();
+        if (!result) {
+            bot.sendMessage(chatId, '❌ Không thể lấy dữ liệu. Thử lại sau.');
+            return;
+        }
+        bot.sendMessage(chatId,
+            `🎯 *DỰ ĐOÁN PHIÊN TIẾP THEO*\n\n` +
+            `📊 Dự đoán: *${result.prediction}*\n` +
+            `🎯 Độ tin cậy: *${result.confidence}*\n` +
+            `📝 Lý do:\n${result.reasons.map(r => `- ${r}`).join('\n')}`,
+            { parse_mode: 'Markdown' }
+        );
+    } catch (error) {
+        console.error('❌ Lỗi /du_doan:', error.message);
+        bot.sendMessage(chatId, '❌ Đã xảy ra lỗi. Vui lòng thử lại.');
     }
-    bot.sendMessage(chatId,
-        `🎯 *DỰ ĐOÁN PHIÊN TIẾP THEO*\n\n` +
-        `📊 Dự đoán: *${result.prediction}*\n` +
-        `🎯 Độ tin cậy: *${result.confidence}*\n` +
-        `📝 Lý do:\n${result.reasons.map(r => `- ${r}`).join('\n')}`,
-        { parse_mode: 'Markdown' }
-    );
 });
 
 // Command /lich_su
 bot.onText(/\/lich_su/, async (msg) => {
     const chatId = msg.chat.id;
-    if (sessionHistory.length === 0) {
-        await fetchAndUpdate();
+    console.log(`✅ Xử lý /lich_su từ ${chatId}`);
+    
+    try {
+        if (sessionHistory.length === 0) {
+            await fetchAndUpdate();
+        }
+        if (sessionHistory.length === 0) {
+            bot.sendMessage(chatId, '📭 Chưa có dữ liệu. Vui lòng chờ cập nhật.');
+            return;
+        }
+        let text = `📜 *LỊCH SỬ 20 PHIÊN GẦN NHẤT*\n\n`;
+        const recent = sessionHistory.slice(0, 20);
+        recent.forEach((item, index) => {
+            const diceStr = item.dice.join('-');
+            text += `${index+1}. 🎲 ${diceStr} | Điểm: ${item.point} | KQ: ${item.actual} | DĐ: ${item.predicted} ${item.correct}\n`;
+        });
+        bot.sendMessage(chatId, text, { parse_mode: 'Markdown' });
+    } catch (error) {
+        console.error('❌ Lỗi /lich_su:', error.message);
+        bot.sendMessage(chatId, '❌ Đã xảy ra lỗi.');
     }
-    if (sessionHistory.length === 0) {
-        bot.sendMessage(chatId, '📭 Chưa có dữ liệu. Vui lòng chờ cập nhật.');
-        return;
-    }
-    let text = `📜 *LỊCH SỬ 20 PHIÊN GẦN NHẤT*\n\n`;
-    const recent = sessionHistory.slice(0, 20);
-    recent.forEach((item, index) => {
-        const diceStr = item.dice.join('-');
-        text += `${index+1}. 🎲 ${diceStr} | Điểm: ${item.point} | KQ: ${item.actual} | DĐ: ${item.predicted} ${item.correct}\n`;
-    });
-    bot.sendMessage(chatId, text, { parse_mode: 'Markdown' });
 });
 
 // Command /thong_ke
 bot.onText(/\/thong_ke/, async (msg) => {
     const chatId = msg.chat.id;
-    if (sessionHistory.length === 0) {
-        await fetchAndUpdate();
-    }
-    const total = sessionHistory.length;
-    const tai = sessionHistory.filter(s => s.actual === 'Tài').length;
-    const xiu = sessionHistory.filter(s => s.actual === 'Xỉu').length;
-    const dung = sessionHistory.filter(s => s.correct === '✅').length;
-    const sai = sessionHistory.filter(s => s.correct === '❌').length;
+    console.log(`✅ Xử lý /thong_ke từ ${chatId}`);
     
-    bot.sendMessage(chatId,
-        `📊 *THỐNG KÊ TỔNG QUAN*\n\n` +
-        `📌 Tổng phiên: ${total}\n` +
-        `🟢 Tài: ${tai} (${total > 0 ? (tai/total*100).toFixed(1) : 0}%)\n` +
-        `🔴 Xỉu: ${xiu} (${total > 0 ? (xiu/total*100).toFixed(1) : 0}%)\n\n` +
-        `🎯 Dự đoán đúng: ${dung}\n` +
-        `❌ Dự đoán sai: ${sai}\n` +
-        `📈 Tỷ lệ chính xác: ${total > 0 ? (dung/total*100).toFixed(1) : 0}%\n\n` +
-        `📊 Biến động: ${(predictionSystem.sessionStats.volatility * 100).toFixed(1)}%\n` +
-        `🧠 Entropy: ${predictionSystem.sessionStats.entropy.toFixed(2)}`,
-        { parse_mode: 'Markdown' }
-    );
+    try {
+        if (sessionHistory.length === 0) {
+            await fetchAndUpdate();
+        }
+        const total = sessionHistory.length;
+        const tai = sessionHistory.filter(s => s.actual === 'Tài').length;
+        const xiu = sessionHistory.filter(s => s.actual === 'Xỉu').length;
+        const dung = sessionHistory.filter(s => s.correct === '✅').length;
+        const sai = sessionHistory.filter(s => s.correct === '❌').length;
+        
+        bot.sendMessage(chatId,
+            `📊 *THỐNG KÊ TỔNG QUAN*\n\n` +
+            `📌 Tổng phiên: ${total}\n` +
+            `🟢 Tài: ${tai} (${total > 0 ? (tai/total*100).toFixed(1) : 0}%)\n` +
+            `🔴 Xỉu: ${xiu} (${total > 0 ? (xiu/total*100).toFixed(1) : 0}%)\n\n` +
+            `🎯 Dự đoán đúng: ${dung}\n` +
+            `❌ Dự đoán sai: ${sai}\n` +
+            `📈 Tỷ lệ chính xác: ${total > 0 ? (dung/total*100).toFixed(1) : 0}%\n\n` +
+            `📊 Biến động: ${(predictionSystem.sessionStats.volatility * 100).toFixed(1)}%\n` +
+            `🧠 Entropy: ${predictionSystem.sessionStats.entropy.toFixed(2)}`,
+            { parse_mode: 'Markdown' }
+        );
+    } catch (error) {
+        console.error('❌ Lỗi /thong_ke:', error.message);
+        bot.sendMessage(chatId, '❌ Đã xảy ra lỗi.');
+    }
 });
 
 // Command /admin
 bot.onText(/\/admin (.+)/, (msg, match) => {
     const chatId = msg.chat.id;
     const key = match[1];
+    console.log(`✅ Xử lý /admin từ ${chatId}`);
+    
     if (key === adminKey) {
         bot.sendMessage(chatId, '✅ *Đăng nhập admin thành công!*\nBạn có thể dùng lệnh `/reset` để reset hệ thống.', { parse_mode: 'Markdown' });
     } else {
@@ -603,18 +671,17 @@ bot.onText(/\/admin (.+)/, (msg, match) => {
     }
 });
 
-// Command /reset (chỉ admin - kiểm tra key trong tin nhắn trước đó)
-let adminSessions = {};
+// Command /reset
 bot.onText(/\/reset/, (msg) => {
     const chatId = msg.chat.id;
-    // Kiểm tra xem user đã đăng nhập admin chưa (lưu tạm)
-    // Đơn giản: yêu cầu nhập key trực tiếp
+    console.log(`✅ Xử lý /reset từ ${chatId}`);
     bot.sendMessage(chatId, '⚠️ Vui lòng nhập key admin: `/admin [key]` trước khi reset.', { parse_mode: 'Markdown' });
 });
 
 // Command /help
 bot.onText(/\/help/, (msg) => {
     const chatId = msg.chat.id;
+    console.log(`✅ Xử lý /help từ ${chatId}`);
     bot.sendMessage(chatId,
         `📖 *HƯỚNG DẪN SỬ DỤNG*\n\n` +
         `🔹 /start - Bắt đầu\n` +
@@ -629,14 +696,16 @@ bot.onText(/\/help/, (msg) => {
 });
 
 // ============================================================
-// 🚀 CHẠY BOT & CẬP NHẬT ĐỊNH KỲ
+// 🚀 CHẠY BOT
 // ============================================================
-console.log('🤖 Bot đang chạy...');
+console.log('🚀 Bot đang khởi động...');
 
 // Cập nhật lần đầu
 fetchAndUpdate().then(() => {
     console.log('✅ Đã cập nhật dữ liệu lần đầu');
     console.log(`📊 Dự đoán hiện tại: ${lastPrediction.prediction} (${lastPrediction.confidence})`);
+    console.log('✅ Bot sẵn sàng!');
+    console.log('📡 Đang lắng nghe lệnh Telegram...');
 });
 
 // Cập nhật mỗi 60 giây
@@ -647,5 +716,11 @@ setInterval(async () => {
     }
 }, 60000);
 
-console.log('✅ Bot sẵn sàng!');
-console.log(`📡 Đang lắng nghe lệnh Telegram...`);
+// Bắt lỗi toàn cục
+process.on('uncaughtException', (error) => {
+    console.error('💥 Uncaught Exception:', error.message);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('💥 Unhandled Rejection:', reason);
+});
