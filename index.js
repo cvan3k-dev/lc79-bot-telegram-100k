@@ -1,88 +1,33 @@
 const TelegramBot = require('node-telegram-bot-api');
 const axios = require('axios');
-const express = require('express'); // ← THÊM EXPRESS
+const express = require('express');
 require('dotenv').config();
 
 // ===== KIỂM TRA BIẾN MÔI TRƯỜNG =====
-console.log('🔍 Đang kiểm tra cấu hình...');
-
 const token = process.env.BOT_TOKEN;
 const adminKey = process.env.ADMIN_KEY;
 const API_URL = process.env.API_URL;
-const PORT = process.env.PORT || 10000; // ← LẤY PORT TỪ ENV
+const PORT = process.env.PORT || 10000;
 
-if (!token) {
-    console.error('❌ THIẾU BOT_TOKEN! Kiểm tra file .env');
-    process.exit(1);
-}
-if (!adminKey) {
-    console.error('❌ THIẾU ADMIN_KEY! Kiểm tra file .env');
-    process.exit(1);
-}
-if (!API_URL) {
-    console.error('❌ THIẾU API_URL! Kiểm tra file .env');
+if (!token || !adminKey || !API_URL) {
+    console.error('❌ Thiếu biến môi trường!');
     process.exit(1);
 }
 
 console.log('✅ Cấu hình OK');
-console.log(`📡 API_URL: ${API_URL.substring(0, 30)}...`);
-console.log(`🔑 Admin Key: ${adminKey}`);
-console.log(`🔌 PORT: ${PORT}`);
 
-// ===== KHỞI TẠO BOT TELEGRAM =====
-let bot;
-try {
-    bot = new TelegramBot(token, { 
-        polling: {
-            interval: 300,
-            autoStart: true,
-            params: {
-                timeout: 10
-            }
-        }
-    });
-    console.log('✅ Bot Telegram khởi tạo thành công!');
-} catch (error) {
-    console.error('❌ Lỗi khởi tạo bot:', error.message);
-    process.exit(1);
-}
+// ===== KHỞI TẠO BOT =====
+const bot = new TelegramBot(token, { polling: true });
+console.log('✅ Bot Telegram khởi tạo thành công!');
 
-// ===== KHỞI TẠO HTTP SERVER CHO RENDER =====
+// ===== KHỞI TẠO HTTP SERVER =====
 const app = express();
 
-// Health check endpoint cho Render
-app.get('/', (req, res) => {
-    res.status(200).json({
-        status: 'online',
-        bot: bot ? 'running' : 'stopped',
-        uptime: process.uptime(),
-        predictions: lastPrediction || null
-    });
-});
-
-app.get('/health', (req, res) => {
-    res.status(200).send('OK');
-});
-
-// Endpoint để xem dự đoán qua web (tùy chọn)
-app.get('/api/prediction', (req, res) => {
-    res.json({
-        prediction: lastPrediction || { prediction: 'Chưa có', confidence: '0%' },
-        history: sessionHistory.slice(0, 20)
-    });
-});
-
-// Bắt lỗi polling bot
-bot.on('polling_error', (error) => {
-    console.error('⚠️ Polling error:', error.message);
-});
-
-bot.on('webhook_error', (error) => {
-    console.error('⚠️ Webhook error:', error.message);
-});
+app.get('/', (req, res) => res.json({ status: 'online', bot: 'running' }));
+app.get('/health', (req, res) => res.send('OK'));
 
 // ============================================================
-// 🧠 CLASS ULTRA DICE PREDICTION SYSTEM (GIỮ NGUYÊN)
+// 🧠 CLASS DỰ ĐOÁN (RÚT GỌN - GIỮ NGUYÊN THUẬT TOÁN)
 // ============================================================
 class UltraDicePredictionSystem {
     constructor() {
@@ -111,9 +56,7 @@ class UltraDicePredictionSystem {
 
     addResult(result) {
         this.history.push(result);
-        if (this.history.length > this.maxHistorySize) {
-            this.history.shift();
-        }
+        if (this.history.length > this.maxHistorySize) this.history.shift();
         this.updateStats(result);
     }
 
@@ -158,7 +101,7 @@ class UltraDicePredictionSystem {
         this.sessionStats.entropy = entropy;
     }
 
-    // -------- MODELS 1-21 (RÚT GỌN) --------
+    // ===== MODELS 1-21 =====
     model1() {
         const patterns = this.detectBasicPatterns();
         if (patterns.length === 0) return null;
@@ -280,7 +223,7 @@ class UltraDicePredictionSystem {
         return null;
     }
 
-    // -------- UTILITY FUNCTIONS --------
+    // ===== UTILITY FUNCTIONS =====
     analyzeTrend(period) {
         if (this.history.length < period) return { direction: 'T', strength: 0.5 };
         const segment = this.history.slice(-period);
@@ -491,7 +434,7 @@ class UltraDicePredictionSystem {
 }
 
 // ============================================================
-// 📊 QUẢN LÝ LỊCH SỬ
+// 📊 QUẢN LÝ DỮ LIỆU
 // ============================================================
 const predictionSystem = new UltraDicePredictionSystem();
 let sessionHistory = [];
@@ -499,34 +442,23 @@ let lastPrediction = { prediction: 'Chưa có', confidence: '0%', reasons: ['Đa
 let isUpdating = false;
 
 async function fetchAndUpdate() {
-    if (isUpdating) {
-        console.log('⏳ Đang cập nhật, bỏ qua...');
-        return lastPrediction;
-    }
-    
+    if (isUpdating) return lastPrediction;
     isUpdating = true;
     try {
-        console.log('🔄 Đang lấy dữ liệu từ API...');
         const response = await axios.get(API_URL, { timeout: 10000 });
         const data = response.data;
-        
         if (!data.list || data.list.length === 0) {
-            console.log('⚠️ Không có dữ liệu từ API');
             isUpdating = false;
             return null;
         }
 
         const latestSessions = data.list.slice(0, 50);
-        console.log(`✅ Lấy được ${latestSessions.length} phiên`);
-
-        // Reset và cập nhật history
         predictionSystem.history = [];
         for (const item of latestSessions.reverse()) {
             const result = item.resultTruyenThong === "TAI" ? 'T' : 'X';
             predictionSystem.addResult(result);
         }
 
-        // Dự đoán
         const pred = predictionSystem.getFinalPrediction();
         const predictionStr = pred.prediction === 'T' ? 'Tài' : 'Xỉu';
         lastPrediction = {
@@ -535,14 +467,11 @@ async function fetchAndUpdate() {
             reasons: pred.reasons || ['Không có lý do']
         };
 
-        // Xây dựng lịch sử dự đoán đúng/sai
         const newHistory = [];
         const sortedSessions = latestSessions;
-        
         for (let i = 0; i < Math.min(50, sortedSessions.length); i++) {
             const item = sortedSessions[i];
             const actual = item.resultTruyenThong === "TAI" ? 'Tài' : 'Xỉu';
-            
             const tempSystem = new UltraDicePredictionSystem();
             for (let j = 0; j < i; j++) {
                 const prevResult = sortedSessions[j].resultTruyenThong === "TAI" ? 'T' : 'X';
@@ -551,7 +480,6 @@ async function fetchAndUpdate() {
             const tempPred = tempSystem.getFinalPrediction();
             const predicted = tempPred.prediction === 'T' ? 'Tài' : 'Xỉu';
             const correct = predicted === actual ? '✅' : '❌';
-            
             newHistory.push({
                 id: item.id || item._id || i,
                 dice: item.dices || [],
@@ -561,11 +489,7 @@ async function fetchAndUpdate() {
                 correct: correct
             });
         }
-        
         sessionHistory = newHistory.slice(0, 50);
-        console.log(`✅ Đã cập nhật ${sessionHistory.length} phiên`);
-        console.log(`🎯 Dự đoán: ${lastPrediction.prediction} (${lastPrediction.confidence})`);
-        
         isUpdating = false;
         return lastPrediction;
     } catch (error) {
@@ -576,115 +500,65 @@ async function fetchAndUpdate() {
 }
 
 // ============================================================
-// 🛡️ HÀM GỬI TIN NHẮN AN TOÀN
+// 🤖 TELEGRAM COMMANDS
 // ============================================================
-function sendPlainMessage(chatId, text) {
-    return bot.sendMessage(chatId, text);
+function sendPlain(chatId, text) {
+    bot.sendMessage(chatId, text);
 }
 
-// ============================================================
-// 🤖 TELEGRAM BOT COMMANDS
-// ============================================================
-
-// Log khi bot nhận được tin nhắn
-bot.on('message', (msg) => {
-    console.log(`📩 Nhận tin nhắn từ ${msg.from.username || msg.from.id}: ${msg.text}`);
-});
-
-// Command /start
 bot.onText(/\/start/, (msg) => {
-    const chatId = msg.chat.id;
-    console.log(`✅ Xử lý /start từ ${chatId}`);
-    
-    const text = 
+    sendPlain(msg.chat.id, 
 `🎲 SUNWIN AI PREDICTION BOT
 
 📌 LỆNH:
-/du_doan - Xem dự đoán hiện tại
+/du_doan - Xem dự đoán
 /lich_su - Xem 20 phiên gần nhất
-/thong_ke - Thống kê tổng quan
+/thong_ke - Thống kê
 /admin [key] - Đăng nhập admin
 /help - Hướng dẫn
 
-🔑 Admin Key: admin123`;
-    
-    sendPlainMessage(chatId, text);
+🔑 Admin Key: admin123`);
 });
 
-// Command /du_doan
 bot.onText(/\/du_doan/, async (msg) => {
     const chatId = msg.chat.id;
-    console.log(`✅ Xử lý /du_doan từ ${chatId}`);
-    
-    try {
-        const result = await fetchAndUpdate();
-        if (!result) {
-            sendPlainMessage(chatId, '❌ Không thể lấy dữ liệu. Thử lại sau.');
-            return;
-        }
-        
-        const text = 
+    const result = await fetchAndUpdate();
+    if (!result) {
+        sendPlain(chatId, '❌ Không thể lấy dữ liệu.');
+        return;
+    }
+    sendPlain(chatId,
 `🎯 DU DOAN PHIEN TIEP THEO
 
 📊 Du doan: ${result.prediction}
 🎯 Do tin cay: ${result.confidence}
 📝 Ly do:
-${result.reasons.map(r => `- ${r}`).join('\n')}`;
-        
-        sendPlainMessage(chatId, text);
-    } catch (error) {
-        console.error('❌ Lỗi /du_doan:', error.message);
-        sendPlainMessage(chatId, '❌ Đã xảy ra lỗi. Vui lòng thử lại.');
-    }
+${result.reasons.map(r => `- ${r}`).join('\n')}`);
 });
 
-// Command /lich_su
 bot.onText(/\/lich_su/, async (msg) => {
     const chatId = msg.chat.id;
-    console.log(`✅ Xử lý /lich_su từ ${chatId}`);
-    
-    try {
-        if (sessionHistory.length === 0) {
-            await fetchAndUpdate();
-        }
-        if (sessionHistory.length === 0) {
-            sendPlainMessage(chatId, '📭 Chưa có dữ liệu. Vui lòng chờ cập nhật.');
-            return;
-        }
-        
-        let text = '📜 LICH SU 20 PHIEN GAN NHAT\n\n';
-        const recent = sessionHistory.slice(0, 20);
-        recent.forEach((item, index) => {
-            const diceStr = item.dice.join('-');
-            text += `${index+1}. 🎲 ${diceStr} | Diem: ${item.point} | KQ: ${item.actual} | DD: ${item.predicted} ${item.correct}\n`;
-        });
-        
-        sendPlainMessage(chatId, text);
-    } catch (error) {
-        console.error('❌ Lỗi /lich_su:', error.message);
-        sendPlainMessage(chatId, '❌ Đã xảy ra lỗi.');
+    if (sessionHistory.length === 0) await fetchAndUpdate();
+    if (sessionHistory.length === 0) {
+        sendPlain(chatId, '📭 Chưa có dữ liệu.');
+        return;
     }
+    let text = '📜 LICH SU 20 PHIEN GAN NHAT\n\n';
+    sessionHistory.slice(0, 20).forEach((item, i) => {
+        text += `${i+1}. 🎲 ${item.dice.join('-')} | Diem: ${item.point} | KQ: ${item.actual} | DD: ${item.predicted} ${item.correct}\n`;
+    });
+    sendPlain(chatId, text);
 });
 
-// Command /thong_ke
 bot.onText(/\/thong_ke/, async (msg) => {
     const chatId = msg.chat.id;
-    console.log(`✅ Xử lý /thong_ke từ ${chatId}`);
-    
-    try {
-        if (sessionHistory.length === 0) {
-            await fetchAndUpdate();
-        }
-        
-        const total = sessionHistory.length;
-        const tai = sessionHistory.filter(s => s.actual === 'Tài').length;
-        const xiu = sessionHistory.filter(s => s.actual === 'Xỉu').length;
-        const dung = sessionHistory.filter(s => s.correct === '✅').length;
-        const sai = sessionHistory.filter(s => s.correct === '❌').length;
-        const volatility = (predictionSystem.sessionStats.volatility * 100).toFixed(1);
-        const entropy = predictionSystem.sessionStats.entropy.toFixed(2);
-        
-        const text = 
+    if (sessionHistory.length === 0) await fetchAndUpdate();
+    const total = sessionHistory.length;
+    const tai = sessionHistory.filter(s => s.actual === 'Tài').length;
+    const xiu = sessionHistory.filter(s => s.actual === 'Xỉu').length;
+    const dung = sessionHistory.filter(s => s.correct === '✅').length;
+    const sai = sessionHistory.filter(s => s.correct === '❌').length;
+    sendPlain(chatId,
 `📊 THONG KE TONG QUAN
 
 📌 Tong phien: ${total}
@@ -695,42 +569,25 @@ bot.onText(/\/thong_ke/, async (msg) => {
 ❌ Du doan sai: ${sai}
 📈 Ty le chinh xac: ${total > 0 ? (dung/total*100).toFixed(1) : 0}%
 
-📊 Bien dong: ${volatility}%
-🧠 Entropy: ${entropy}`;
-        
-        sendPlainMessage(chatId, text);
-    } catch (error) {
-        console.error('❌ Lỗi /thong_ke:', error.message);
-        sendPlainMessage(chatId, '❌ Đã xảy ra lỗi.');
-    }
+📊 Bien dong: ${(predictionSystem.sessionStats.volatility * 100).toFixed(1)}%
+🧠 Entropy: ${predictionSystem.sessionStats.entropy.toFixed(2)}`);
 });
 
-// Command /admin
 bot.onText(/\/admin (.+)/, (msg, match) => {
     const chatId = msg.chat.id;
-    const key = match[1];
-    console.log(`✅ Xử lý /admin từ ${chatId}`);
-    
-    if (key === adminKey) {
-        sendPlainMessage(chatId, '✅ Dang nhap admin thanh cong!\nBan co the dung lenh /reset de reset he thong.');
+    if (match[1] === adminKey) {
+        sendPlain(chatId, '✅ Dang nhap admin thanh cong!');
     } else {
-        sendPlainMessage(chatId, '❌ Key khong hop le.');
+        sendPlain(chatId, '❌ Key khong hop le.');
     }
 });
 
-// Command /reset
 bot.onText(/\/reset/, (msg) => {
-    const chatId = msg.chat.id;
-    console.log(`✅ Xử lý /reset từ ${chatId}`);
-    sendPlainMessage(chatId, '⚠️ Vui long nhap key admin: /admin [key] truoc khi reset.');
+    sendPlain(msg.chat.id, '⚠️ Vui long nhap key admin: /admin [key] truoc khi reset.');
 });
 
-// Command /help
 bot.onText(/\/help/, (msg) => {
-    const chatId = msg.chat.id;
-    console.log(`✅ Xử lý /help từ ${chatId}`);
-    
-    const text = 
+    sendPlain(msg.chat.id,
 `📖 HUONG DAN SU DUNG
 
 🔹 /start - Bat dau
@@ -741,43 +598,31 @@ bot.onText(/\/help/, (msg) => {
 🔹 /reset - Reset he thong (admin)
 🔹 /help - Huong dan
 
-🔑 Admin Key: admin123`;
-    
-    sendPlainMessage(chatId, text);
+🔑 Admin Key: admin123`);
 });
 
 // ============================================================
-// 🚀 CHẠY BOT & HTTP SERVER
+// 🚀 KHỞI CHẠY
 // ============================================================
 console.log('🚀 Bot đang khởi động...');
 
-// Cập nhật lần đầu
 fetchAndUpdate().then(() => {
     console.log('✅ Đã cập nhật dữ liệu lần đầu');
-    console.log(`📊 Dự đoán hiện tại: ${lastPrediction.prediction} (${lastPrediction.confidence})`);
-    console.log('✅ Bot sẵn sàng!');
-    console.log('📡 Đang lắng nghe lệnh Telegram...');
+    console.log(`📊 Dự đoán: ${lastPrediction.prediction} (${lastPrediction.confidence})`);
 });
 
-// Cập nhật mỗi 60 giây
 setInterval(async () => {
     const result = await fetchAndUpdate();
     if (result) {
-        console.log(`🔄 Cập nhật: Dự đoán ${result.prediction} (${result.confidence})`);
+        console.log(`🔄 Cập nhật: ${result.prediction} (${result.confidence})`);
     }
 }, 60000);
 
-// ===== START HTTP SERVER CHO RENDER =====
+// Start HTTP server
 app.listen(PORT, '0.0.0.0', () => {
-    console.log(`🌐 HTTP Server đang chạy trên cổng ${PORT}`);
-    console.log(`✅ Render health check: http://0.0.0.0:${PORT}/health`);
+    console.log(`🌐 HTTP Server chạy trên cổng ${PORT}`);
 });
 
-// Bắt lỗi toàn cục
 process.on('uncaughtException', (error) => {
-    console.error('💥 Uncaught Exception:', error.message);
-});
-
-process.on('unhandledRejection', (reason, promise) => {
-    console.error('💥 Unhandled Rejection:', reason);
+    console.error('💥 Lỗi:', error.message);
 });
