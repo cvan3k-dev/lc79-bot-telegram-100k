@@ -1,26 +1,17 @@
 import os
-import time
+import asyncio
 import threading
-import logging
 from datetime import datetime
 from flask import Flask, jsonify
-from telegram import Bot, Update
-from telegram.ext import Updater, CommandHandler
+from telegram import Update
+from telegram.ext import Application, CommandHandler, ContextTypes
 from dotenv import load_dotenv
 import requests
-import json
 
 # Import prediction system
 from prediction_system import UltraDicePredictionSystem
 
-# ===== CẤU HÌNH LOGGING =====
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
-)
-logger = logging.getLogger(__name__)
-
-# ===== LOAD ENV =====
+# ===== CẤU HÌNH =====
 load_dotenv()
 
 BOT_TOKEN = os.getenv('BOT_TOKEN')
@@ -129,7 +120,7 @@ def fetch_and_update():
 
 # ===== TELEGRAM BOT HANDLERS =====
 
-def start(update, context):
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = """🎲 SUNWIN AI PREDICTION BOT
 
 📌 LỆNH:
@@ -140,12 +131,12 @@ def start(update, context):
 /help - Hướng dẫn
 
 🔑 Admin Key: admin123"""
-    update.message.reply_text(text)
+    await update.message.reply_text(text)
 
-def du_doan(update, context):
+async def du_doan(update: Update, context: ContextTypes.DEFAULT_TYPE):
     result = fetch_and_update()
     if not result:
-        update.message.reply_text('❌ Không thể lấy dữ liệu. Thử lại sau.')
+        await update.message.reply_text('❌ Không thể lấy dữ liệu. Thử lại sau.')
         return
     
     text = f"""🎯 DU DOAN PHIEN TIEP THEO
@@ -157,14 +148,14 @@ def du_doan(update, context):
     for reason in result['reasons']:
         text += f"- {reason}\n"
     
-    update.message.reply_text(text)
+    await update.message.reply_text(text)
 
-def lich_su(update, context):
+async def lich_su(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not session_history:
         fetch_and_update()
     
     if not session_history:
-        update.message.reply_text('📭 Chưa có dữ liệu. Vui lòng chờ cập nhật.')
+        await update.message.reply_text('📭 Chưa có dữ liệu. Vui lòng chờ cập nhật.')
         return
     
     text = '📜 LICH SU 20 PHIEN GAN NHAT\n\n'
@@ -172,15 +163,15 @@ def lich_su(update, context):
         dice_str = '-'.join(map(str, item['dice']))
         text += f"{i+1}. 🎲 {dice_str} | Diem: {item['point']} | KQ: {item['actual']} | DD: {item['predicted']} {item['correct']}\n"
     
-    update.message.reply_text(text)
+    await update.message.reply_text(text)
 
-def thong_ke(update, context):
+async def thong_ke(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not session_history:
         fetch_and_update()
     
     total = len(session_history)
     if total == 0:
-        update.message.reply_text('📭 Chưa có dữ liệu thống kê.')
+        await update.message.reply_text('📭 Chưa có dữ liệu thống kê.')
         return
     
     tai = sum(1 for s in session_history if s['actual'] == 'Tài')
@@ -204,23 +195,23 @@ def thong_ke(update, context):
 📊 Bien dong: {volatility:.1f}%
 🧠 Entropy: {entropy:.2f}"""
     
-    update.message.reply_text(text)
+    await update.message.reply_text(text)
 
-def admin(update, context):
+async def admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.args:
-        update.message.reply_text('⚠️ Vui lòng nhập key: /admin [key]')
+        await update.message.reply_text('⚠️ Vui lòng nhập key: /admin [key]')
         return
     
     key = context.args[0]
     if key == ADMIN_KEY:
-        update.message.reply_text('✅ Dang nhap admin thanh cong!\nBan co the dung lenh /reset de reset he thong.')
+        await update.message.reply_text('✅ Dang nhap admin thanh cong!\nBan co the dung lenh /reset de reset he thong.')
     else:
-        update.message.reply_text('❌ Key khong hop le.')
+        await update.message.reply_text('❌ Key khong hop le.')
 
-def reset(update, context):
-    update.message.reply_text('⚠️ Vui long nhap key admin: /admin [key] truoc khi reset.')
+async def reset(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text('⚠️ Vui long nhap key admin: /admin [key] truoc khi reset.')
 
-def help_command(update, context):
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = """📖 HUONG DAN SU DUNG
 
 🔹 /start - Bat dau
@@ -232,30 +223,28 @@ def help_command(update, context):
 🔹 /help - Huong dan
 
 🔑 Admin Key: admin123"""
-    update.message.reply_text(text)
+    await update.message.reply_text(text)
 
 # ===== KHỞI CHẠY BOT =====
 def run_bot():
-    # Tạo updater
-    updater = Updater(BOT_TOKEN, use_context=True)
-    dp = updater.dispatcher
+    # Tạo application
+    application = Application.builder().token(BOT_TOKEN).build()
     
     # Thêm handlers
-    dp.add_handler(CommandHandler('start', start))
-    dp.add_handler(CommandHandler('du_doan', du_doan))
-    dp.add_handler(CommandHandler('lich_su', lich_su))
-    dp.add_handler(CommandHandler('thong_ke', thong_ke))
-    dp.add_handler(CommandHandler('admin', admin))
-    dp.add_handler(CommandHandler('reset', reset))
-    dp.add_handler(CommandHandler('help', help_command))
+    application.add_handler(CommandHandler('start', start))
+    application.add_handler(CommandHandler('du_doan', du_doan))
+    application.add_handler(CommandHandler('lich_su', lich_su))
+    application.add_handler(CommandHandler('thong_ke', thong_ke))
+    application.add_handler(CommandHandler('admin', admin))
+    application.add_handler(CommandHandler('reset', reset))
+    application.add_handler(CommandHandler('help', help_command))
     
     # Cập nhật lần đầu
     fetch_and_update()
     
     # Start bot
     print('🚀 Bot đang chạy...')
-    updater.start_polling()
-    updater.idle()
+    application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 # ===== CHẠY FLASK + BOT =====
 if __name__ == '__main__':
@@ -268,5 +257,5 @@ if __name__ == '__main__':
     flask_thread.start()
     print(f'🌐 HTTP Server chạy trên cổng {PORT}')
     
-    # Chạy bot
+    # Chạy bot (blocking)
     run_bot()
