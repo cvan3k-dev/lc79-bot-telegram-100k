@@ -24,7 +24,6 @@ if (!API_URL) {
 
 console.log('✅ Cấu hình OK');
 console.log(`📡 API_URL: ${API_URL.substring(0, 30)}...`);
-console.log(`🔑 Admin Key: ${adminKey}`);
 
 // ===== KHỞI TẠO BOT =====
 let bot;
@@ -47,9 +46,6 @@ try {
 // ===== BẮT LỖI POLLING =====
 bot.on('polling_error', (error) => {
     console.error('⚠️ Polling error:', error.message);
-    if (error.message.includes('403')) {
-        console.error('❌ TOKEN KHÔNG HỢP LỆ! Kiểm tra lại BOT_TOKEN');
-    }
 });
 
 bot.on('webhook_error', (error) => {
@@ -133,7 +129,7 @@ class UltraDicePredictionSystem {
         this.sessionStats.entropy = entropy;
     }
 
-    // -------- MODELS 1-21 (GIỮ NGUYÊN THUẬT TOÁN) --------
+    // -------- MODELS 1-21 --------
     model1() {
         const patterns = this.detectBasicPatterns();
         if (patterns.length === 0) return null;
@@ -551,7 +547,19 @@ async function fetchAndUpdate() {
 }
 
 // ============================================================
-// 🤖 TELEGRAM BOT COMMANDS
+// 🛡️ HÀM GỬI TIN NHẮN AN TOÀN (KHÔNG DÙNG MARKDOWN)
+// ============================================================
+function sendSafeMessage(chatId, text) {
+    return bot.sendMessage(chatId, text, { parse_mode: 'HTML' });
+}
+
+// Hoặc dùng plain text
+function sendPlainMessage(chatId, text) {
+    return bot.sendMessage(chatId, text);
+}
+
+// ============================================================
+// 🤖 TELEGRAM BOT COMMANDS (SỬA MARKDOWN)
 // ============================================================
 
 // Log khi bot nhận được tin nhắn
@@ -563,16 +571,20 @@ bot.on('message', (msg) => {
 bot.onText(/\/start/, (msg) => {
     const chatId = msg.chat.id;
     console.log(`✅ Xử lý /start từ ${chatId}`);
-    bot.sendMessage(chatId, 
-        `🎲 *SunWin AI Prediction Bot*\n\n` +
-        `📌 *Lệnh:*\n` +
-        `/du_doan - Xem dự đoán hiện tại\n` +
-        `/lich_su - Xem 20 phiên gần nhất\n` +
-        `/thong_ke - Thống kê tổng quan\n` +
-        `/admin [key] - Đăng nhập admin\n` +
-        `/help - Hướng dẫn`,
-        { parse_mode: 'Markdown' }
-    ).catch(err => console.error('❌ Lỗi gửi tin nhắn:', err.message));
+    
+    const text = 
+`🎲 SUNWIN AI PREDICTION BOT
+
+📌 LỆNH:
+/du_doan - Xem dự đoán hiện tại
+/lich_su - Xem 20 phiên gần nhất
+/thong_ke - Thống kê tổng quan
+/admin [key] - Đăng nhập admin
+/help - Hướng dẫn
+
+🔑 Admin Key: admin123`;
+    
+    sendPlainMessage(chatId, text);
 });
 
 // Command /du_doan
@@ -583,19 +595,22 @@ bot.onText(/\/du_doan/, async (msg) => {
     try {
         const result = await fetchAndUpdate();
         if (!result) {
-            bot.sendMessage(chatId, '❌ Không thể lấy dữ liệu. Thử lại sau.');
+            sendPlainMessage(chatId, '❌ Không thể lấy dữ liệu. Thử lại sau.');
             return;
         }
-        bot.sendMessage(chatId,
-            `🎯 *DỰ ĐOÁN PHIÊN TIẾP THEO*\n\n` +
-            `📊 Dự đoán: *${result.prediction}*\n` +
-            `🎯 Độ tin cậy: *${result.confidence}*\n` +
-            `📝 Lý do:\n${result.reasons.map(r => `- ${r}`).join('\n')}`,
-            { parse_mode: 'Markdown' }
-        );
+        
+        const text = 
+`🎯 DU DOAN PHIEN TIEP THEO
+
+📊 Du doan: ${result.prediction}
+🎯 Do tin cay: ${result.confidence}
+📝 Ly do:
+${result.reasons.map(r => `- ${r}`).join('\n')}`;
+        
+        sendPlainMessage(chatId, text);
     } catch (error) {
         console.error('❌ Lỗi /du_doan:', error.message);
-        bot.sendMessage(chatId, '❌ Đã xảy ra lỗi. Vui lòng thử lại.');
+        sendPlainMessage(chatId, '❌ Đã xảy ra lỗi. Vui lòng thử lại.');
     }
 });
 
@@ -609,19 +624,21 @@ bot.onText(/\/lich_su/, async (msg) => {
             await fetchAndUpdate();
         }
         if (sessionHistory.length === 0) {
-            bot.sendMessage(chatId, '📭 Chưa có dữ liệu. Vui lòng chờ cập nhật.');
+            sendPlainMessage(chatId, '📭 Chưa có dữ liệu. Vui lòng chờ cập nhật.');
             return;
         }
-        let text = `📜 *LỊCH SỬ 20 PHIÊN GẦN NHẤT*\n\n`;
+        
+        let text = '📜 LICH SU 20 PHIEN GAN NHAT\n\n';
         const recent = sessionHistory.slice(0, 20);
         recent.forEach((item, index) => {
             const diceStr = item.dice.join('-');
-            text += `${index+1}. 🎲 ${diceStr} | Điểm: ${item.point} | KQ: ${item.actual} | DĐ: ${item.predicted} ${item.correct}\n`;
+            text += `${index+1}. 🎲 ${diceStr} | Diem: ${item.point} | KQ: ${item.actual} | DD: ${item.predicted} ${item.correct}\n`;
         });
-        bot.sendMessage(chatId, text, { parse_mode: 'Markdown' });
+        
+        sendPlainMessage(chatId, text);
     } catch (error) {
         console.error('❌ Lỗi /lich_su:', error.message);
-        bot.sendMessage(chatId, '❌ Đã xảy ra lỗi.');
+        sendPlainMessage(chatId, '❌ Đã xảy ra lỗi.');
     }
 });
 
@@ -634,27 +651,33 @@ bot.onText(/\/thong_ke/, async (msg) => {
         if (sessionHistory.length === 0) {
             await fetchAndUpdate();
         }
+        
         const total = sessionHistory.length;
         const tai = sessionHistory.filter(s => s.actual === 'Tài').length;
         const xiu = sessionHistory.filter(s => s.actual === 'Xỉu').length;
         const dung = sessionHistory.filter(s => s.correct === '✅').length;
         const sai = sessionHistory.filter(s => s.correct === '❌').length;
+        const volatility = (predictionSystem.sessionStats.volatility * 100).toFixed(1);
+        const entropy = predictionSystem.sessionStats.entropy.toFixed(2);
         
-        bot.sendMessage(chatId,
-            `📊 *THỐNG KÊ TỔNG QUAN*\n\n` +
-            `📌 Tổng phiên: ${total}\n` +
-            `🟢 Tài: ${tai} (${total > 0 ? (tai/total*100).toFixed(1) : 0}%)\n` +
-            `🔴 Xỉu: ${xiu} (${total > 0 ? (xiu/total*100).toFixed(1) : 0}%)\n\n` +
-            `🎯 Dự đoán đúng: ${dung}\n` +
-            `❌ Dự đoán sai: ${sai}\n` +
-            `📈 Tỷ lệ chính xác: ${total > 0 ? (dung/total*100).toFixed(1) : 0}%\n\n` +
-            `📊 Biến động: ${(predictionSystem.sessionStats.volatility * 100).toFixed(1)}%\n` +
-            `🧠 Entropy: ${predictionSystem.sessionStats.entropy.toFixed(2)}`,
-            { parse_mode: 'Markdown' }
-        );
+        const text = 
+`📊 THONG KE TONG QUAN
+
+📌 Tong phien: ${total}
+🟢 Tai: ${tai} (${total > 0 ? (tai/total*100).toFixed(1) : 0}%)
+🔴 Xiu: ${xiu} (${total > 0 ? (xiu/total*100).toFixed(1) : 0}%)
+
+🎯 Du doan dung: ${dung}
+❌ Du doan sai: ${sai}
+📈 Ty le chinh xac: ${total > 0 ? (dung/total*100).toFixed(1) : 0}%
+
+📊 Bien dong: ${volatility}%
+🧠 Entropy: ${entropy}`;
+        
+        sendPlainMessage(chatId, text);
     } catch (error) {
         console.error('❌ Lỗi /thong_ke:', error.message);
-        bot.sendMessage(chatId, '❌ Đã xảy ra lỗi.');
+        sendPlainMessage(chatId, '❌ Đã xảy ra lỗi.');
     }
 });
 
@@ -665,9 +688,9 @@ bot.onText(/\/admin (.+)/, (msg, match) => {
     console.log(`✅ Xử lý /admin từ ${chatId}`);
     
     if (key === adminKey) {
-        bot.sendMessage(chatId, '✅ *Đăng nhập admin thành công!*\nBạn có thể dùng lệnh `/reset` để reset hệ thống.', { parse_mode: 'Markdown' });
+        sendPlainMessage(chatId, '✅ Dang nhap admin thanh cong!\nBan co the dung lenh /reset de reset he thong.');
     } else {
-        bot.sendMessage(chatId, '❌ Key không hợp lệ.');
+        sendPlainMessage(chatId, '❌ Key khong hop le.');
     }
 });
 
@@ -675,24 +698,28 @@ bot.onText(/\/admin (.+)/, (msg, match) => {
 bot.onText(/\/reset/, (msg) => {
     const chatId = msg.chat.id;
     console.log(`✅ Xử lý /reset từ ${chatId}`);
-    bot.sendMessage(chatId, '⚠️ Vui lòng nhập key admin: `/admin [key]` trước khi reset.', { parse_mode: 'Markdown' });
+    sendPlainMessage(chatId, '⚠️ Vui long nhap key admin: /admin [key] truoc khi reset.');
 });
 
 // Command /help
 bot.onText(/\/help/, (msg) => {
     const chatId = msg.chat.id;
     console.log(`✅ Xử lý /help từ ${chatId}`);
-    bot.sendMessage(chatId,
-        `📖 *HƯỚNG DẪN SỬ DỤNG*\n\n` +
-        `🔹 /start - Bắt đầu\n` +
-        `🔹 /du_doan - Xem dự đoán\n` +
-        `🔹 /lich_su - Xem lịch sử 20 phiên\n` +
-        `🔹 /thong_ke - Xem thống kê\n` +
-        `🔹 /admin [key] - Đăng nhập admin\n` +
-        `🔹 /reset - Reset hệ thống (admin)\n` +
-        `🔹 /help - Hướng dẫn`,
-        { parse_mode: 'Markdown' }
-    );
+    
+    const text = 
+`📖 HUONG DAN SU DUNG
+
+🔹 /start - Bat dau
+🔹 /du_doan - Xem du doan
+🔹 /lich_su - Xem lich su 20 phien
+🔹 /thong_ke - Xem thong ke
+🔹 /admin [key] - Dang nhap admin
+🔹 /reset - Reset he thong (admin)
+🔹 /help - Huong dan
+
+🔑 Admin Key: admin123`;
+    
+    sendPlainMessage(chatId, text);
 });
 
 // ============================================================
