@@ -2,14 +2,21 @@ const TelegramBot = require('node-telegram-bot-api');
 const axios = require('axios');
 require('dotenv').config();
 
+// ===== KIỂM TRA BIẾN MÔI TRƯỜNG =====
 const token = process.env.BOT_TOKEN;
 const adminKey = process.env.ADMIN_KEY;
 const API_URL = process.env.API_URL;
 
+if (!token || !adminKey || !API_URL) {
+    console.error('❌ Thiếu biến môi trường! Kiểm tra file .env');
+    process.exit(1);
+}
+
 const bot = new TelegramBot(token, { polling: true });
+console.log('🤖 Bot đang khởi động...');
 
 // ============================================================
-// 🧠 CLASS ULTRA DICE PREDICTION SYSTEM (CHUYỂN TOÀN BỘ THUẬT TOÁN)
+// 🧠 CLASS ULTRA DICE PREDICTION SYSTEM (RÚT GỌN - GIỮ NGUYÊN THUẬT TOÁN)
 // ============================================================
 class UltraDicePredictionSystem {
     constructor() {
@@ -20,7 +27,6 @@ class UltraDicePredictionSystem {
         this.performance = {};
         this.sessionStats = {
             streaks: { T: 0, X: 0, maxT: 0, maxX: 0 },
-            transitions: {},
             volatility: 0.5,
             entropy: 0,
             bias: { T: 0, X: 0 },
@@ -148,11 +154,8 @@ class UltraDicePredictionSystem {
         return { prediction: this.history[this.history.length - 1], confidence: 0.6, reason: 'Tiếp streak' };
     }
 
-    // -------- MODEL 7-21: Các model còn lại (giữ nguyên logic) --------
+    // -------- MODEL 7-21: GIỮ NGUYÊN --------
     model7() { return null; }
-    model7Support1() { return {}; }
-    model7Support2() { return {}; }
-
     model8() {
         const randomness = this.measureRandomness(30);
         if (randomness > 0.7) {
@@ -160,52 +163,43 @@ class UltraDicePredictionSystem {
         }
         return null;
     }
-
     model9() { return null; }
     model10() {
         const breakProb = this.calculateBreakProbability();
         return { prediction: null, confidence: breakProb, reason: `Xác suất bẻ cầu: ${Math.round(breakProb*100)}%` };
     }
-
     model11() {
         const volatility = this.analyzeVolatility();
         return { prediction: this.history[this.history.length - 1], confidence: 0.5 + (1 - volatility.value) * 0.3, reason: `Biến động ${volatility.level}` };
     }
-
     model12() {
         const shortPatterns = this.detectShortPatterns(8);
         if (shortPatterns.length === 0) return null;
         return { prediction: shortPatterns[0].prediction, confidence: 0.65, reason: `Mẫu ngắn: ${shortPatterns[0].pattern}` };
     }
-
     model13() { return null; }
     model14() {
         const trendBreak = this.calculateTrendBreakProbability();
         return { prediction: trendBreak.prediction, confidence: trendBreak.probability, reason: `Bẻ trend ${Math.round(trendBreak.probability*100)}%` };
     }
-
     model15() {
         const trend = this.analyzeTrend(10);
         return { prediction: trend.direction, confidence: trend.strength, reason: `Theo trend ${trend.direction}` };
     }
-
     model16() {
         const breakProb = this.calculateComprehensiveBreakProbability();
         return { prediction: breakProb.prediction, confidence: breakProb.probability, reason: `Bẻ tổng hợp ${Math.round(breakProb.probability*100)}%` };
     }
-
     model17() { return null; }
     model18() {
         const shortTrend = this.analyzeShortTermTrend(6);
         return { prediction: shortTrend.prediction, confidence: shortTrend.confidence, reason: `Xu hướng ngắn: ${shortTrend.direction}` };
     }
-
     model19() {
         const popularTrends = this.identifyPopularTrends();
         if (popularTrends.length === 0) return null;
         return { prediction: popularTrends[0].prediction, confidence: popularTrends[0].confidence, reason: `Xu hướng phổ biến: ${popularTrends[0].pattern}` };
     }
-
     model20() {
         const topModels = this.getTopPerformingModels(3);
         if (topModels.length === 0) return null;
@@ -219,7 +213,6 @@ class UltraDicePredictionSystem {
         }
         return { prediction: tScore > xScore ? 'T' : 'X', confidence: Math.max(tScore, xScore) / (tScore + xScore), reason: `Ensemble top ${topModels.length} models` };
     }
-
     model21() {
         const globalImbalance = this.measureGlobalImbalance();
         if (globalImbalance > 0.4) {
@@ -364,7 +357,7 @@ class UltraDicePredictionSystem {
     measureGlobalImbalance() {
         const tCount = this.history.filter(x => x === 'T').length;
         const xCount = this.history.filter(x => x === 'X').length;
-        return Math.abs(tCount - xCount) / this.history.length;
+        return this.history.length > 0 ? Math.abs(tCount - xCount) / this.history.length : 0;
     }
 
     globalBalancing() {
@@ -434,7 +427,8 @@ class UltraDicePredictionSystem {
         if (this.getFinalPrediction().prediction === actualResult) {
             this.sessionStats.predictions.correct++;
         }
-        this.sessionStats.predictions.accuracy = this.sessionStats.predictions.correct / this.sessionStats.predictions.total;
+        this.sessionStats.predictions.accuracy = this.sessionStats.predictions.total > 0 ? 
+            this.sessionStats.predictions.correct / this.sessionStats.predictions.total : 0;
     }
 }
 
@@ -442,19 +436,29 @@ class UltraDicePredictionSystem {
 // 📊 QUẢN LÝ LỊCH SỬ 50 PHIÊN
 // ============================================================
 const predictionSystem = new UltraDicePredictionSystem();
-let sessionHistory = []; // Lưu { id, result, prediction, correct }
+let sessionHistory = [];
+let lastPrediction = { prediction: 'Chưa có', confidence: '0%', reasons: [] };
 
 async function fetchAndUpdate() {
     try {
-        const response = await axios.get(API_URL);
+        console.log('🔄 Đang lấy dữ liệu từ API...');
+        const response = await axios.get(API_URL, { timeout: 10000 });
         const data = response.data;
-        if (!data.list || data.list.length === 0) return;
+        
+        if (!data.list || data.list.length === 0) {
+            console.log('⚠️ Không có dữ liệu từ API');
+            return null;
+        }
 
         // Lấy 50 phiên mới nhất
         const latestSessions = data.list.slice(0, 50);
+        console.log(`✅ Lấy được ${latestSessions.length} phiên`);
+
+        // Reset history của prediction system
+        predictionSystem.history = [];
         
-        // Cập nhật history của prediction system
-        for (const item of latestSessions) {
+        // Cập nhật history
+        for (const item of latestSessions.reverse()) {
             const result = item.resultTruyenThong === "TAI" ? 'T' : 'X';
             predictionSystem.addResult(result);
         }
@@ -462,18 +466,33 @@ async function fetchAndUpdate() {
         // Dự đoán cho phiên tiếp theo
         const pred = predictionSystem.getFinalPrediction();
         const predictionStr = pred.prediction === 'T' ? 'Tài' : 'Xỉu';
+        lastPrediction = {
+            prediction: predictionStr,
+            confidence: Math.round(pred.confidence * 100) + '%',
+            reasons: pred.reasons || ['Không có lý do']
+        };
 
         // Xây dựng lịch sử dự đoán đúng/sai
         const newHistory = [];
-        for (let i = 0; i < Math.min(50, latestSessions.length); i++) {
-            const item = latestSessions[i];
+        const sortedSessions = latestSessions; // Đã đảo ngược ở trên
+        
+        for (let i = 0; i < Math.min(50, sortedSessions.length); i++) {
+            const item = sortedSessions[i];
             const actual = item.resultTruyenThong === "TAI" ? 'Tài' : 'Xỉu';
-            // Dự đoán cho phiên này (dùng model đã học từ các phiên trước)
-            // Ở đây đơn giản: so sánh với dự đoán hiện tại (có thể cải thiện)
-            const predicted = i > 0 ? predictionStr : 'Chưa có';
+            
+            // Dùng model dự đoán cho phiên này (dựa trên lịch sử trước đó)
+            // Tạo một instance tạm để dự đoán từng phiên
+            const tempSystem = new UltraDicePredictionSystem();
+            for (let j = 0; j < i; j++) {
+                const prevResult = sortedSessions[j].resultTruyenThong === "TAI" ? 'T' : 'X';
+                tempSystem.addResult(prevResult);
+            }
+            const tempPred = tempSystem.getFinalPrediction();
+            const predicted = tempPred.prediction === 'T' ? 'Tài' : 'Xỉu';
             const correct = predicted === actual ? '✅' : '❌';
+            
             newHistory.push({
-                id: item.id || item._id,
+                id: item.id || item._id || i,
                 dice: item.dices || [],
                 point: item.point || 0,
                 actual: actual,
@@ -483,9 +502,10 @@ async function fetchAndUpdate() {
         }
         
         sessionHistory = newHistory.slice(0, 50);
-        return { prediction: predictionStr, confidence: Math.round(pred.confidence * 100) + '%', reasons: pred.reasons };
+        console.log(`✅ Đã cập nhật lịch sử ${sessionHistory.length} phiên`);
+        return lastPrediction;
     } catch (error) {
-        console.error('Lỗi fetch API:', error.message);
+        console.error('❌ Lỗi fetch API:', error.message);
         return null;
     }
 }
@@ -499,7 +519,7 @@ bot.onText(/\/start/, (msg) => {
     const chatId = msg.chat.id;
     bot.sendMessage(chatId, 
         `🎲 *SunWin AI Prediction Bot*\n\n` +
-        `📌 Lệnh:\n` +
+        `📌 *Lệnh:*\n` +
         `/du_doan - Xem dự đoán hiện tại\n` +
         `/lich_su - Xem 20 phiên gần nhất\n` +
         `/thong_ke - Thống kê tổng quan\n` +
@@ -531,6 +551,9 @@ bot.onText(/\/du_doan/, async (msg) => {
 bot.onText(/\/lich_su/, async (msg) => {
     const chatId = msg.chat.id;
     if (sessionHistory.length === 0) {
+        await fetchAndUpdate();
+    }
+    if (sessionHistory.length === 0) {
         bot.sendMessage(chatId, '📭 Chưa có dữ liệu. Vui lòng chờ cập nhật.');
         return;
     }
@@ -546,6 +569,9 @@ bot.onText(/\/lich_su/, async (msg) => {
 // Command /thong_ke
 bot.onText(/\/thong_ke/, async (msg) => {
     const chatId = msg.chat.id;
+    if (sessionHistory.length === 0) {
+        await fetchAndUpdate();
+    }
     const total = sessionHistory.length;
     const tai = sessionHistory.filter(s => s.actual === 'Tài').length;
     const xiu = sessionHistory.filter(s => s.actual === 'Xỉu').length;
@@ -577,12 +603,13 @@ bot.onText(/\/admin (.+)/, (msg, match) => {
     }
 });
 
-// Command /reset (chỉ admin)
-bot.onText(/\/reset/, async (msg) => {
+// Command /reset (chỉ admin - kiểm tra key trong tin nhắn trước đó)
+let adminSessions = {};
+bot.onText(/\/reset/, (msg) => {
     const chatId = msg.chat.id;
-    // Kiểm tra admin (lưu trạng thái admin tạm thời - đơn giản)
-    // Ở đây tôi cho phép reset nếu có key trong tin nhắn trước đó
-    bot.sendMessage(chatId, '⚠️ Vui lòng nhập key admin: /admin [key] trước khi reset.');
+    // Kiểm tra xem user đã đăng nhập admin chưa (lưu tạm)
+    // Đơn giản: yêu cầu nhập key trực tiếp
+    bot.sendMessage(chatId, '⚠️ Vui lòng nhập key admin: `/admin [key]` trước khi reset.', { parse_mode: 'Markdown' });
 });
 
 // Command /help
@@ -607,7 +634,10 @@ bot.onText(/\/help/, (msg) => {
 console.log('🤖 Bot đang chạy...');
 
 // Cập nhật lần đầu
-fetchAndUpdate().then(() => console.log('✅ Đã cập nhật dữ liệu lần đầu'));
+fetchAndUpdate().then(() => {
+    console.log('✅ Đã cập nhật dữ liệu lần đầu');
+    console.log(`📊 Dự đoán hiện tại: ${lastPrediction.prediction} (${lastPrediction.confidence})`);
+});
 
 // Cập nhật mỗi 60 giây
 setInterval(async () => {
@@ -618,3 +648,4 @@ setInterval(async () => {
 }, 60000);
 
 console.log('✅ Bot sẵn sàng!');
+console.log(`📡 Đang lắng nghe lệnh Telegram...`);
