@@ -1,5 +1,6 @@
 const TelegramBot = require('node-telegram-bot-api');
 const axios = require('axios');
+const express = require('express'); // ← THÊM EXPRESS
 require('dotenv').config();
 
 // ===== KIỂM TRA BIẾN MÔI TRƯỜNG =====
@@ -8,6 +9,7 @@ console.log('🔍 Đang kiểm tra cấu hình...');
 const token = process.env.BOT_TOKEN;
 const adminKey = process.env.ADMIN_KEY;
 const API_URL = process.env.API_URL;
+const PORT = process.env.PORT || 10000; // ← LẤY PORT TỪ ENV
 
 if (!token) {
     console.error('❌ THIẾU BOT_TOKEN! Kiểm tra file .env');
@@ -24,8 +26,10 @@ if (!API_URL) {
 
 console.log('✅ Cấu hình OK');
 console.log(`📡 API_URL: ${API_URL.substring(0, 30)}...`);
+console.log(`🔑 Admin Key: ${adminKey}`);
+console.log(`🔌 PORT: ${PORT}`);
 
-// ===== KHỞI TẠO BOT =====
+// ===== KHỞI TẠO BOT TELEGRAM =====
 let bot;
 try {
     bot = new TelegramBot(token, { 
@@ -37,13 +41,38 @@ try {
             }
         }
     });
-    console.log('✅ Bot khởi tạo thành công!');
+    console.log('✅ Bot Telegram khởi tạo thành công!');
 } catch (error) {
     console.error('❌ Lỗi khởi tạo bot:', error.message);
     process.exit(1);
 }
 
-// ===== BẮT LỖI POLLING =====
+// ===== KHỞI TẠO HTTP SERVER CHO RENDER =====
+const app = express();
+
+// Health check endpoint cho Render
+app.get('/', (req, res) => {
+    res.status(200).json({
+        status: 'online',
+        bot: bot ? 'running' : 'stopped',
+        uptime: process.uptime(),
+        predictions: lastPrediction || null
+    });
+});
+
+app.get('/health', (req, res) => {
+    res.status(200).send('OK');
+});
+
+// Endpoint để xem dự đoán qua web (tùy chọn)
+app.get('/api/prediction', (req, res) => {
+    res.json({
+        prediction: lastPrediction || { prediction: 'Chưa có', confidence: '0%' },
+        history: sessionHistory.slice(0, 20)
+    });
+});
+
+// Bắt lỗi polling bot
 bot.on('polling_error', (error) => {
     console.error('⚠️ Polling error:', error.message);
 });
@@ -53,7 +82,7 @@ bot.on('webhook_error', (error) => {
 });
 
 // ============================================================
-// 🧠 CLASS ULTRA DICE PREDICTION SYSTEM
+// 🧠 CLASS ULTRA DICE PREDICTION SYSTEM (GIỮ NGUYÊN)
 // ============================================================
 class UltraDicePredictionSystem {
     constructor() {
@@ -129,7 +158,7 @@ class UltraDicePredictionSystem {
         this.sessionStats.entropy = entropy;
     }
 
-    // -------- MODELS 1-21 --------
+    // -------- MODELS 1-21 (RÚT GỌN) --------
     model1() {
         const patterns = this.detectBasicPatterns();
         if (patterns.length === 0) return null;
@@ -547,19 +576,14 @@ async function fetchAndUpdate() {
 }
 
 // ============================================================
-// 🛡️ HÀM GỬI TIN NHẮN AN TOÀN (KHÔNG DÙNG MARKDOWN)
+// 🛡️ HÀM GỬI TIN NHẮN AN TOÀN
 // ============================================================
-function sendSafeMessage(chatId, text) {
-    return bot.sendMessage(chatId, text, { parse_mode: 'HTML' });
-}
-
-// Hoặc dùng plain text
 function sendPlainMessage(chatId, text) {
     return bot.sendMessage(chatId, text);
 }
 
 // ============================================================
-// 🤖 TELEGRAM BOT COMMANDS (SỬA MARKDOWN)
+// 🤖 TELEGRAM BOT COMMANDS
 // ============================================================
 
 // Log khi bot nhận được tin nhắn
@@ -723,7 +747,7 @@ bot.onText(/\/help/, (msg) => {
 });
 
 // ============================================================
-// 🚀 CHẠY BOT
+// 🚀 CHẠY BOT & HTTP SERVER
 // ============================================================
 console.log('🚀 Bot đang khởi động...');
 
@@ -742,6 +766,12 @@ setInterval(async () => {
         console.log(`🔄 Cập nhật: Dự đoán ${result.prediction} (${result.confidence})`);
     }
 }, 60000);
+
+// ===== START HTTP SERVER CHO RENDER =====
+app.listen(PORT, '0.0.0.0', () => {
+    console.log(`🌐 HTTP Server đang chạy trên cổng ${PORT}`);
+    console.log(`✅ Render health check: http://0.0.0.0:${PORT}/health`);
+});
 
 // Bắt lỗi toàn cục
 process.on('uncaughtException', (error) => {
