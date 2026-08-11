@@ -2,6 +2,7 @@ import asyncio
 import logging
 import os
 import aiohttp
+import sys
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 from dotenv import load_dotenv
@@ -22,7 +23,7 @@ logger = logging.getLogger(__name__)
 # ── KIỂM TRA ──────────────────────────────────────────────
 if not TOKEN:
     logger.error("❌ KHÔNG TÌM THẤY BOT_TOKEN!")
-    exit(1)
+    sys.exit(1)
 
 logger.info(f"✅ Bot Token: {TOKEN[:10]}...")
 
@@ -58,7 +59,6 @@ async def predict(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     data = await response.json()
                     items = data.get('data', [])
                     if items:
-                        # Tìm phiên có kết quả
                         valid = None
                         for item in items:
                             if all(k in item for k in ['d1', 'd2', 'd3', 'phiên', 'kết_quả']):
@@ -99,5 +99,16 @@ async def main():
     logger.info("🔄 Bắt đầu polling...")
     await app.run_polling(allowed_updates=Update.ALL_TYPES)
 
+# ── ENTRY POINT ──────────────────────────────────────────
 if __name__ == "__main__":
-    asyncio.run(main())
+    # Cách chạy an toàn cho Render
+    try:
+        asyncio.run(main())
+    except RuntimeError as e:
+        if "already running" in str(e):
+            logger.warning("⚠️ Event loop đã chạy, tạo loop mới...")
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(main())
+        else:
+            raise
