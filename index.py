@@ -21,7 +21,7 @@ API_HISTORY = 'https://web-tool-4ej3.onrender.com/api/lc79/history'
 FETCH_INTERVAL = 10
 CACHE_FILE = 'cache_data.json'
 CONFIG_FILE = 'users_config.json'
-ADMIN_IDS = [5888859004]  # Thay bằng ID Telegram của bạn
+ADMIN_IDS = [5888859004]
 
 # ── LOGGING ─────────────────────────────────────────────
 logging.basicConfig(
@@ -37,7 +37,7 @@ if not TOKEN:
 logger.info(f"✅ Bot Token: {TOKEN[:10]}...")
 
 # ═══════════════════════════════════════════════════════════
-# ── USER MANAGER ──────────────────────────────────────────
+# USER MANAGER
 # ═══════════════════════════════════════════════════════════
 
 class UserManager:
@@ -136,7 +136,7 @@ class UserManager:
         return True, new_expiry
 
 # ═══════════════════════════════════════════════════════════
-# ── PREDICTION SYSTEM (150 THUẬT TOÁN) ──────────────────
+# PREDICTION SYSTEM
 # ═══════════════════════════════════════════════════════════
 
 class UltraPredictionSystem:
@@ -656,7 +656,7 @@ class UltraPredictionSystem:
             logger.warning(f"⚠️ Lỗi tải lịch sử: {e}")
 
 # ═══════════════════════════════════════════════════════════
-# ── KHỞI TẠO ──────────────────────────────────────────────
+# KHỞI TẠO
 # ═══════════════════════════════════════════════════════════
 
 user_manager = UserManager()
@@ -668,12 +668,12 @@ for admin_id in ADMIN_IDS:
 prediction_system = UltraPredictionSystem()
 logger.info(f"🧠 Đã khởi tạo {len(prediction_system.models)} models")
 
-# ── STATE ──────────────────────────────────────────────────
 last_session = None
 last_data = None
 cache_data = None
 
 # ── FUNCTIONS ──────────────────────────────────────────────
+
 def load_cache():
     global cache_data
     try:
@@ -774,7 +774,6 @@ def process_data(data):
         'ly_do': pred.get('reasons', [])[:3]
     }
 
-# ── DECORATOR AUTH ──────────────────────────────────────
 def require_auth(func):
     async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
         user_id = update.effective_user.id
@@ -787,7 +786,7 @@ def require_auth(func):
     return wrapper
 
 # ═══════════════════════════════════════════════════════════
-# ── BOT COMMANDS ──────────────────────────────────────────
+# BOT COMMANDS
 # ═══════════════════════════════════════════════════════════
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -908,7 +907,8 @@ async def live_update(context: ContextTypes.DEFAULT_TYPE):
 async def help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("🎲 *HƯỚNG DẪN*\n\n/predict - Dự đoán phiên hiện tại\n/stats - Thống kê chi tiết\n/patterns - 50 pattern phổ biến\n/models - Hiệu suất 150 models\n/live - Bật live update\n/info - Thông tin user\n/register <key> - Đăng ký key\n\n📡 API: https://web-tool-4ej3.onrender.com/api/lc79/history", parse_mode='Markdown')
 
-# ── ADMIN COMMANDS ──────────────────────────────────────
+# ── ADMIN ──────────────────────────────────────────────────
+
 async def admin_add_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in ADMIN_IDS:
         await update.message.reply_text("❌ Không có quyền admin!")
@@ -959,6 +959,7 @@ async def admin_extend(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"✅ Đã gia hạn user {target_id} thêm {days} ngày!\n📅 Hạn mới: {result.strftime('%d/%m/%Y')}" if success else f"❌ {result}")
 
 # ── CALLBACK ─────────────────────────────────────────────
+
 async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
@@ -970,7 +971,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(f"🔑 *ĐĂNG KÝ*\n\n🆔 ID: `{update.effective_user.id}`\n\n📱 Liên hệ admin: @hoangquan280\nSau đó gửi: `/register <key>`", parse_mode='Markdown')
 
 # ═══════════════════════════════════════════════════════════
-# ── MAIN ──────────────────────────────────────────────────
+# MAIN
 # ═══════════════════════════════════════════════════════════
 
 async def main():
@@ -994,7 +995,7 @@ async def main():
     app.add_handler(CommandHandler("extend", admin_extend))
     app.add_handler(CallbackQueryHandler(button_callback))
     
-    # Xóa webhook cũ - tránh conflict
+    # 🔥 QUAN TRỌNG: Xóa webhook trước khi bắt đầu
     await app.bot.delete_webhook(drop_pending_updates=True)
     logger.info("✅ Đã xóa webhook")
     
@@ -1015,7 +1016,7 @@ async def main():
             break
         except Exception as e:
             if "Conflict" in str(e) and attempt < max_retries - 1:
-                logger.warning(f"⚠️ Conflict detected! Retry {attempt+1}/{max_retries} in 5s...")
+                logger.warning(f"⚠️ Conflict! Retry {attempt+1}/{max_retries} sau 5s...")
                 await asyncio.sleep(5)
                 await app.bot.delete_webhook(drop_pending_updates=True)
             else:
@@ -1031,15 +1032,18 @@ async def main():
         await app.stop()
         await app.shutdown()
 
-# ── ENTRY POINT ──────────────────────────────────────────
+# ═══════════════════════════════════════════════════════════
+# ENTRY POINT - Dùng cách an toàn nhất
+# ═══════════════════════════════════════════════════════════
+
 if __name__ == "__main__":
-    # Chạy với event loop mới để tránh conflict
+    # 🔥 Cách an toàn: tạo event loop mới và chạy
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
     try:
-        asyncio.run(main())
-    except RuntimeError as e:
-        if "already running" in str(e):
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            loop.run_until_complete(main())
-        else:
-            raise
+        loop.run_until_complete(main())
+    except KeyboardInterrupt:
+        logger.info("🛑 Bot đã dừng")
+    finally:
+        loop.close()
+        logger.info("✅ Đã đóng event loop")
