@@ -3,9 +3,10 @@ import logging
 import os
 import json
 import aiohttp
+import sys
 from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, ContextTypes, CallbackQueryHandler, MessageHandler, filters
+from telegram.ext import Application, CommandHandler, ContextTypes, CallbackQueryHandler
 from prediction_system import UltraPredictionSystem
 from config import user_manager, ADMIN_IDS
 from dotenv import load_dotenv
@@ -35,7 +36,6 @@ def require_auth(func):
         user_id = update.effective_user.id
         username = update.effective_user.username or f"user_{user_id}"
         
-        # Kiểm tra user
         is_valid, result = user_manager.check_user(user_id)
         
         if not is_valid:
@@ -53,7 +53,6 @@ def require_auth(func):
             )
             return
         
-        # Lưu user vào context để dùng sau
         context.user_data['user_info'] = result
         context.user_data['user_id'] = user_id
         context.user_data['username'] = username
@@ -66,7 +65,7 @@ async def fetch_history():
     global last_session, last_data
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.get(API_HISTORY, headers={'Accept': 'application/json'}) as response:
+            async with session.get(API_HISTORY, headers={'Accept': 'application/json'}, timeout=10) as response:
                 if response.status == 200:
                     data = await response.json()
                     if data.get('status') == 'OK':
@@ -134,12 +133,10 @@ def process_data(data):
 
 # ── BOT COMMANDS ────────────────────────────────────────
 
-# Start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     username = update.effective_user.username or f"user_{user_id}"
     
-    # Kiểm tra user
     is_valid, result = user_manager.check_user(user_id)
     
     if not is_valid:
@@ -181,12 +178,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         parse_mode='Markdown'
     )
 
-# Register key
 async def register(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     username = update.effective_user.username or f"user_{user_id}"
     
-    # Kiểm tra nếu đã có key
     is_valid, _ = user_manager.check_user(user_id)
     if is_valid:
         await update.message.reply_text("✅ Bạn đã có key rồi! Dùng /info để xem chi tiết.")
@@ -205,15 +200,9 @@ async def register(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     key = args[0]
     
-    # Kiểm tra key trong hệ thống
-    # Key có thể được tạo sẵn bởi admin, hoặc key tự động
-    # Ở đây mình cho phép key là bất kỳ (admin sẽ tạo và gửi cho user)
-    
-    # Tạo user mới với key nhập vào
     success, result = user_manager.add_user(user_id, username, expiry_days=30, role='user')
     
     if success:
-        # Cập nhật key cho user
         user_data = user_manager.users[str(user_id)]
         user_data['key'] = key
         user_manager.save_config()
@@ -229,7 +218,6 @@ async def register(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await update.message.reply_text(f"❌ {result}")
 
-# Info user
 async def info(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     user_info = user_manager.get_user_info(user_id)
@@ -258,7 +246,6 @@ async def info(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await update.message.reply_text(msg, parse_mode='Markdown')
 
-# Predict
 @require_auth
 async def predict(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("⏳ Đang lấy dữ liệu...")
@@ -299,7 +286,6 @@ async def predict(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await update.message.reply_text(msg, parse_mode='Markdown', reply_markup=reply_markup)
 
-# Stats
 @require_auth
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     stats_data = prediction_system.get_stats()
@@ -326,7 +312,6 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await update.message.reply_text(msg, parse_mode='Markdown')
 
-# Patterns
 @require_auth
 async def patterns(update: Update, context: ContextTypes.DEFAULT_TYPE):
     patterns_data = prediction_system.get_patterns()
@@ -344,7 +329,6 @@ async def patterns(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await update.message.reply_text(msg, parse_mode='Markdown')
 
-# Models
 @require_auth
 async def models(update: Update, context: ContextTypes.DEFAULT_TYPE):
     perf = prediction_system.get_detailed_performance()
@@ -365,13 +349,12 @@ async def models(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await update.message.reply_text(msg, parse_mode='Markdown')
 
-# Live
 @require_auth
 async def live(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     
     job_name = f"live_{chat_id}"
-    current_jobs = context.job_queue.jobs()
+    current_jobs = context.job_queue.jobs() if context.job_queue else []
     
     for job in current_jobs:
         if job.name == job_name:
@@ -415,7 +398,6 @@ async def live_update(context: ContextTypes.DEFAULT_TYPE):
     
     await context.bot.send_message(chat_id=chat_id, text=msg, parse_mode='Markdown')
 
-# Help
 async def help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "🎲 *HƯỚNG DẪN SỬ DỤNG*\n\n"
@@ -556,6 +538,7 @@ async def main():
         logger.error("❌ Không tìm thấy BOT_TOKEN trong .env!")
         return
     
+    # Tạo application
     application = Application.builder().token(TOKEN).build()
     
     # User commands
@@ -581,7 +564,42 @@ async def main():
     await fetch_history()
     
     logger.info("🚀 Bot đang chạy...")
-    await application.run_polling(allowed_updates=Update.ALL_TYPES)
+    
+    # 🔥 SỬA LỖI EVENT LOOP: Chạy polling với webhook fallback
+    try:
+        await application.run_polling(
+            allowed_updates=Update.ALL_TYPES,
+            drop_pending_updates=True,
+            close_loop=False  # Không đóng loop khi kết thúc
+        )
+    except RuntimeError as e:
+        if "already running" in str(e):
+            logger.warning("⚠️ Event loop đang chạy, sử dụng webhook mode...")
+            # Fallback: chạy webhook
+            await application.initialize()
+            await application.start()
+            await application.updater.start_polling(
+                allowed_updates=Update.ALL_TYPES,
+                drop_pending_updates=True
+            )
+            # Giữ bot chạy
+            try:
+                while True:
+                    await asyncio.sleep(3600)
+            except KeyboardInterrupt:
+                pass
+        else:
+            raise
 
+# ── ENTRY POINT ──────────────────────────────────────────
 if __name__ == '__main__':
-    asyncio.run(main())
+    # Kiểm tra và chạy với event loop phù hợp
+    try:
+        # Thử lấy event loop hiện tại
+        loop = asyncio.get_running_loop()
+        # Nếu đã có loop, chạy task
+        loop.create_task(main())
+        loop.run_forever()
+    except RuntimeError:
+        # Không có loop, tạo mới
+        asyncio.run(main())
