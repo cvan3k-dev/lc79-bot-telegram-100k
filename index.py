@@ -4,6 +4,7 @@ import os
 import json
 import aiohttp
 import sys
+import signal
 from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, ContextTypes, CallbackQueryHandler
@@ -17,6 +18,7 @@ load_dotenv()
 TOKEN = os.getenv('BOT_TOKEN')
 API_HISTORY = 'https://web-tool-4ej3.onrender.com/api/lc79/history'
 FETCH_INTERVAL = 10
+CACHE_FILE = 'cache_data.json'
 
 # ── LOGGING ─────────────────────────────────────────────
 logging.basicConfig(
@@ -29,6 +31,28 @@ logger = logging.getLogger(__name__)
 prediction_system = UltraPredictionSystem()
 last_session = None
 last_data = None
+cache_data = None
+
+# ── QUẢN LÝ CACHE ──────────────────────────────────────
+def load_cache():
+    global cache_data
+    try:
+        if os.path.exists(CACHE_FILE):
+            with open(CACHE_FILE, 'r', encoding='utf-8') as f:
+                cache_data = json.load(f)
+                logger.info(f"✅ Đã tải cache: {len(cache_data.get('history', []))} phiên")
+                return cache_data
+    except Exception as e:
+        logger.warning(f"⚠️ Không thể tải cache: {e}")
+    return None
+
+def save_cache(data):
+    try:
+        with open(CACHE_FILE, 'w', encoding='utf-8') as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+        logger.info("💾 Đã lưu cache")
+    except Exception as e:
+        logger.warning(f"⚠️ Không thể lưu cache: {e}")
 
 # ── DECORATOR KIỂM TRA QUYỀN ───────────────────────────
 def require_auth(func):
@@ -62,27 +86,54 @@ def require_auth(func):
 
 # ── LẤY DỮ LIỆU TỪ API ──────────────────────────────────
 async def fetch_history():
-    global last_session, last_data
+    global last_session, last_data, cache_data
+    
     try:
+        logger.info("🔄 Đang lấy dữ liệu từ API...")
         async with aiohttp.ClientSession() as session:
-            async with session.get(API_HISTORY, headers={'Accept': 'application/json'}, timeout=10) as response:
+            async with session.get(
+                API_HISTORY, 
+                headers={
+                    'Accept': 'application/json',
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                },
+                timeout=10
+            ) as response:
                 if response.status == 200:
                     data = await response.json()
                     if data.get('status') == 'OK':
                         items = data.get('data', [])
                         if items:
+                            # Tìm phiên có kết quả đầy đủ
                             valid = None
                             for item in items:
                                 if all(k in item for k in ['d1', 'd2', 'd3', 'phiên', 'kết_quả']):
                                     valid = item
                                     break
                             
-                            if valid and valid['phiên'] != last_session:
-                                last_session = valid['phiên']
-                                last_data = valid
-                                return valid
+                            if valid:
+                                # Lưu cache
+                                cache_data = {'last_session': valid['phiên'], 'data': valid, 'history': items}
+                                save_cache(cache_data)
+                                
+                                if valid['phiên'] != last_session:
+                                    last_session = valid['phiên']
+                                    last_data = valid
+                                    logger.info(f"✅ Lấy dữ liệu thành công: #{valid['phiên']}")
+                                    return valid
     except Exception as e:
-        logger.error(f"❌ Lỗi fetch API: {e}")
+        logger.warning(f"⚠️ API thất bại: {e}")
+    
+    # Fallback: dùng cache
+    if cache_data:
+        logger.info("📦 Đang dùng dữ liệu cache...")
+        valid = cache_data.get('data')
+        if valid and valid.get('phiên') != last_session:
+            last_session = valid['phiên']
+            last_data = valid
+            logger.info(f"✅ Dùng cache: #{valid['phiên']}")
+            return valid
+    
     return None
 
 # ── XỬ LÝ DỮ LIỆU ──────────────────────────────────────
@@ -252,7 +303,11 @@ async def predict(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     data = await fetch_history()
     if not data:
-        await update.message.reply_text("❌ Không thể lấy dữ liệu từ API!")
+        await update.message.reply_text(
+            "❌ Không thể lấy dữ liệu từ API!\n\n"
+            "🔄 Đang thử lại...\n"
+            "📌 Nếu vẫn lỗi, hãy thử lại sau vài phút."
+        )
         return
     
     result = process_data(data)
@@ -349,9 +404,18 @@ async def models(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await update.message.reply_text(msg, parse_mode='Markdown')
 
+# 🔥 SỬA LỖI LIVE: Kiểm tra job_queue trước khi dùng
 @require_auth
 async def live(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
+    
+    # Kiểm tra xem job_queue có tồn tại không
+    if context.job_queue is None:
+        await update.message.reply_text(
+            "❌ Không thể bật chế độ live!\n"
+            "📌 Vui lòng thử lại sau hoặc dùng /predict thủ công."
+        )
+        return
     
     job_name = f"live_{chat_id}"
     current_jobs = context.job_queue.jobs() if context.job_queue else []
@@ -538,8 +602,17 @@ async def main():
         logger.error("❌ Không tìm thấy BOT_TOKEN trong .env!")
         return
     
-    # Tạo application
-    application = Application.builder().token(TOKEN).build()
+    # Tải cache
+    load_cache()
+    
+    # Tạo application với job_queue enabled
+    application = (
+        Application.builder()
+        .token(TOKEN)
+        .connect_timeout(30)
+        .read_timeout(30)
+        .build()
+    )
     
     # User commands
     application.add_handler(CommandHandler("start", start))
@@ -565,41 +638,50 @@ async def main():
     
     logger.info("🚀 Bot đang chạy...")
     
-    # 🔥 SỬA LỖI EVENT LOOP: Chạy polling với webhook fallback
     try:
-        await application.run_polling(
+        # Khởi tạo và chạy polling
+        await application.initialize()
+        await application.start()
+        
+        # Xóa webhook cũ
+        await application.bot.delete_webhook(drop_pending_updates=True)
+        
+        # Bắt đầu polling
+        await application.updater.start_polling(
             allowed_updates=Update.ALL_TYPES,
             drop_pending_updates=True,
-            close_loop=False  # Không đóng loop khi kết thúc
+            poll_interval=1.0,
+            timeout=30
         )
-    except RuntimeError as e:
-        if "already running" in str(e):
-            logger.warning("⚠️ Event loop đang chạy, sử dụng webhook mode...")
-            # Fallback: chạy webhook
-            await application.initialize()
-            await application.start()
-            await application.updater.start_polling(
-                allowed_updates=Update.ALL_TYPES,
-                drop_pending_updates=True
-            )
-            # Giữ bot chạy
-            try:
-                while True:
-                    await asyncio.sleep(3600)
-            except KeyboardInterrupt:
-                pass
-        else:
-            raise
+        
+        # Giữ bot chạy
+        while True:
+            await asyncio.sleep(3600)
+            
+    except KeyboardInterrupt:
+        logger.info("🛑 Bot đang dừng...")
+        await application.shutdown()
+    except Exception as e:
+        logger.error(f"❌ Lỗi: {e}")
+        raise
 
 # ── ENTRY POINT ──────────────────────────────────────────
 if __name__ == '__main__':
-    # Kiểm tra và chạy với event loop phù hợp
+    def signal_handler(sig, frame):
+        logger.info("🛑 Nhận tín hiệu dừng...")
+        sys.exit(0)
+    
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+    
     try:
-        # Thử lấy event loop hiện tại
-        loop = asyncio.get_running_loop()
-        # Nếu đã có loop, chạy task
-        loop.create_task(main())
-        loop.run_forever()
-    except RuntimeError:
-        # Không có loop, tạo mới
         asyncio.run(main())
+    except KeyboardInterrupt:
+        logger.info("🛑 Bot đã dừng")
+        sys.exit(0)
+    except RuntimeError as e:
+        if "already running" in str(e):
+            logger.warning("⚠️ Event loop đã chạy, thoát...")
+            sys.exit(0)
+        else:
+            raise
