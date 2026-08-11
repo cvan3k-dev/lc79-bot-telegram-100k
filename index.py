@@ -5,7 +5,6 @@ import json
 import aiohttp
 import sys
 import signal
-import time
 from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, ContextTypes, CallbackQueryHandler
@@ -20,7 +19,6 @@ TOKEN = os.getenv('BOT_TOKEN')
 API_HISTORY = 'https://web-tool-4ej3.onrender.com/api/lc79/history'
 FETCH_INTERVAL = 10
 CACHE_FILE = 'cache_data.json'
-MAX_RETRIES = 3
 
 # ── LOGGING ─────────────────────────────────────────────
 logging.basicConfig(
@@ -34,7 +32,6 @@ prediction_system = UltraPredictionSystem()
 last_session = None
 last_data = None
 cache_data = None
-api_failure_count = 0
 
 # ── QUẢN LÝ CACHE ──────────────────────────────────────
 def load_cache():
@@ -57,64 +54,57 @@ def save_cache(data):
     except Exception as e:
         logger.warning(f"⚠️ Không thể lưu cache: {e}")
 
-# ── LẤY DỮ LIỆU TỪ API (CÓ RETRY) ─────────────────────
+# ── LẤY DỮ LIỆU TỪ API CỦA BẠN ──────────────────────
 async def fetch_history():
-    global last_session, last_data, cache_data, api_failure_count
+    global last_session, last_data, cache_data
     
-    for attempt in range(MAX_RETRIES):
-        try:
-            logger.info(f"🔄 Lấy dữ liệu (lần {attempt + 1}/{MAX_RETRIES})...")
-            
-            async with aiohttp.ClientSession() as session:
-                async with session.get(
-                    API_HISTORY, 
-                    headers={
-                        'Accept': 'application/json',
-                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-                    },
-                    timeout=10
-                ) as response:
+    try:
+        logger.info("🔄 Đang lấy dữ liệu từ API...")
+        async with aiohttp.ClientSession() as session:
+            async with session.get(
+                API_HISTORY,
+                headers={
+                    'Accept': 'application/json',
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                },
+                timeout=10
+            ) as response:
+                
+                if response.status == 200:
+                    data = await response.json()
+                    logger.info(f"📊 API response: status={data.get('status')}, total={len(data.get('data', []))}")
                     
-                    if response.status == 200:
-                        data = await response.json()
-                        if data.get('status') == 'OK':
-                            items = data.get('data', [])
-                            if items:
-                                # Tìm phiên có kết quả đầy đủ
-                                valid = None
-                                for item in items:
-                                    if all(k in item for k in ['d1', 'd2', 'd3', 'phiên', 'kết_quả']):
-                                        valid = item
-                                        break
-                                
-                                if valid:
+                    if data.get('status') == 'OK':
+                        items = data.get('data', [])
+                        if items:
+                            # Lấy phiên mới nhất có kết quả
+                            for item in items:
+                                if all(k in item for k in ['d1', 'd2', 'd3', 'phiên', 'kết_quả']):
                                     # Lưu cache
-                                    cache_data = {'last_session': valid['phiên'], 'data': valid, 'history': items}
+                                    cache_data = {'last_session': item['phiên'], 'data': item, 'history': items}
                                     save_cache(cache_data)
                                     
-                                    if valid['phiên'] != last_session:
-                                        last_session = valid['phiên']
-                                        last_data = valid
-                                        api_failure_count = 0
-                                        logger.info(f"✅ Lấy dữ liệu thành công: #{valid['phiên']}")
-                                        return valid
+                                    if item['phiên'] != last_session:
+                                        last_session = item['phiên']
+                                        last_data = item
+                                        logger.info(f"✅ Lấy dữ liệu thành công: #{item['phiên']} - {item['kết_quả']}")
+                                        return item
+                                    else:
+                                        logger.info(f"⏳ Phiên #{item['phiên']} đã xử lý, bỏ qua")
+                                        return None
+                        else:
+                            logger.warning("⚠️ API trả về data rỗng!")
                     else:
-                        logger.warning(f"⚠️ API trả về status: {response.status}")
-                        
-        except asyncio.TimeoutError:
-            logger.warning(f"⚠️ Timeout lần {attempt + 1}")
-        except aiohttp.ClientError as e:
-            logger.warning(f"⚠️ Lỗi kết nối lần {attempt + 1}: {e}")
-        except Exception as e:
-            logger.warning(f"⚠️ Lỗi lần {attempt + 1}: {e}")
-        
-        # Chờ trước khi retry
-        if attempt < MAX_RETRIES - 1:
-            await asyncio.sleep(2)
-    
-    # Tất cả retry thất bại
-    api_failure_count += 1
-    logger.warning(f"⚠️ API thất bại {api_failure_count} lần liên tiếp")
+                        logger.warning(f"⚠️ API status không OK: {data.get('status')}")
+                else:
+                    logger.warning(f"⚠️ API trả về status: {response.status}")
+                    
+    except asyncio.TimeoutError:
+        logger.warning("⚠️ Timeout khi gọi API")
+    except aiohttp.ClientError as e:
+        logger.warning(f"⚠️ Lỗi kết nối API: {e}")
+    except Exception as e:
+        logger.warning(f"⚠️ Lỗi không xác định: {e}")
     
     # Fallback: dùng cache
     if cache_data:
@@ -125,22 +115,6 @@ async def fetch_history():
             last_data = valid
             logger.info(f"✅ Dùng cache: #{valid['phiên']}")
             return valid
-    
-    # Fallback cuối: dữ liệu mẫu
-    if api_failure_count > 5:
-        logger.warning("⚠️ Dùng dữ liệu mẫu do API lỗi quá nhiều!")
-        sample_data = {
-            'phiên': int(time.time()) % 10000000,
-            'd1': 3,
-            'd2': 4,
-            'd3': 5,
-            'tổng': 12,
-            'kết_quả': 'tai'
-        }
-        if sample_data['phiên'] != last_session:
-            last_session = sample_data['phiên']
-            last_data = sample_data
-            return sample_data
     
     return None
 
@@ -156,6 +130,7 @@ def process_data(data):
     tong = data.get('tổng', d1 + d2 + d3)
     ket_qua_raw = data.get('kết_quả', '')
     
+    # Xác định kết quả
     if ket_qua_raw in ['tai', 'Tài', 'T', 't']:
         ket_qua = 'T'
         ket_qua_text = 'TÀI'
@@ -166,12 +141,15 @@ def process_data(data):
         ket_qua = 'T' if tong > 10 else 'X'
         ket_qua_text = 'TÀI' if ket_qua == 'T' else 'XỈU'
     
+    # Thêm vào hệ thống dự đoán
     prediction_system.add_result(ket_qua)
     
+    # Lấy dự đoán
     pred = prediction_system.get_final_prediction()
     pred_text = 'TÀI' if pred['prediction'] == 'T' else 'XỈU'
     conf = int(pred['confidence'] * 100)
     
+    # Đánh giá
     is_correct = pred['prediction'] == ket_qua
     status = '✅ ĐÚNG' if is_correct else '❌ SAI'
     
@@ -240,13 +218,15 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     user_info = result
     expiry = datetime.fromisoformat(user_info['expiry']).strftime('%d/%m/%Y')
+    api_status = "✅ Đã kết nối" if last_data else "⏳ Đang chờ"
     
     await update.message.reply_text(
         f"🎲 *CHÀO {username}!*\n\n"
         f"✅ *Đã xác thực!*\n"
         f"🆔 ID: `{user_id}`\n"
         f"👤 Vai trò: {user_info.get('role', 'user').upper()}\n"
-        f"📅 Hạn key: {expiry}\n\n"
+        f"📅 Hạn key: {expiry}\n"
+        f"🌐 API: {api_status}\n\n"
         f"📌 *Lệnh:*\n"
         f"/predict - Dự đoán\n"
         f"/stats - Thống kê\n"
@@ -293,13 +273,14 @@ async def register(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 @require_auth
 async def predict(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("⏳ Đang lấy dữ liệu...")
+    await update.message.reply_text("⏳ Đang lấy dữ liệu từ API...")
     
     data = await fetch_history()
     if not data:
         await update.message.reply_text(
             "❌ Không thể lấy dữ liệu!\n"
-            "🔄 Đang thử lại sau vài giây..."
+            "🔄 Đang thử lại...\n"
+            "📌 Kiểm tra API: https://web-tool-4ej3.onrender.com/api/lc79/history"
         )
         return
     
@@ -445,7 +426,8 @@ async def help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/models - Hiệu suất\n"
         "/live - Live update\n"
         "/info - Thông tin user\n"
-        "/register <key> - Đăng ký",
+        "/register <key> - Đăng ký\n\n"
+        f"📡 API: {API_HISTORY}",
         parse_mode='Markdown'
     )
 
@@ -619,6 +601,7 @@ async def main():
     
     application.add_handler(CallbackQueryHandler(button_callback))
     
+    # Lấy dữ liệu lần đầu
     logger.info("🔄 Đang lấy dữ liệu lần đầu...")
     await fetch_history()
     
@@ -628,8 +611,9 @@ async def main():
         await application.initialize()
         await application.start()
         
-        # Xóa webhook cũ để tránh conflict
+        # Xóa webhook cũ - QUAN TRỌNG để tránh Conflict
         await application.bot.delete_webhook(drop_pending_updates=True)
+        logger.info("✅ Đã xóa webhook cũ")
         
         # Bắt đầu polling
         await application.updater.start_polling(
@@ -664,4 +648,3 @@ if __name__ == '__main__':
     except KeyboardInterrupt:
         logger.info("🛑 Bot đã dừng")
         sys.exit(0)
-        
