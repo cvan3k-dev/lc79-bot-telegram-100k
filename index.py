@@ -4,7 +4,7 @@ import os
 import aiohttp
 import sys
 from telegram import Update
-from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram.ext import Application, CommandHandler, ContextTypes, Defaults
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -20,7 +20,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# ── KIỂM TRA ──────────────────────────────────────────────
 if not TOKEN:
     logger.error("❌ KHÔNG TÌM THẤY BOT_TOKEN!")
     sys.exit(1)
@@ -86,6 +85,7 @@ async def predict(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def main():
     logger.info("🚀 Đang khởi động bot...")
     
+    # Tạo application
     app = Application.builder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("test", test))
@@ -95,20 +95,38 @@ async def main():
     await app.bot.delete_webhook(drop_pending_updates=True)
     logger.info("✅ Đã xóa webhook")
     
-    # Bắt đầu polling
-    logger.info("🔄 Bắt đầu polling...")
-    await app.run_polling(allowed_updates=Update.ALL_TYPES)
+    # Khởi tạo
+    await app.initialize()
+    await app.start()
+    
+    # Bắt đầu polling thủ công (không dùng run_polling)
+    await app.updater.start_polling(
+        allowed_updates=Update.ALL_TYPES,
+        drop_pending_updates=True,
+        poll_interval=1.0,
+        timeout=30
+    )
+    logger.info("🔄 Bot đang chạy polling...")
+    
+    # Giữ bot chạy
+    try:
+        while True:
+            await asyncio.sleep(3600)
+    except KeyboardInterrupt:
+        logger.info("🛑 Đang dừng bot...")
+    finally:
+        await app.updater.stop()
+        await app.stop()
+        await app.shutdown()
 
 # ── ENTRY POINT ──────────────────────────────────────────
 if __name__ == "__main__":
-    # Cách chạy an toàn cho Render
+    # Tạo event loop mới để tránh xung đột
     try:
+        loop = asyncio.get_running_loop()
+        # Nếu đã có loop, tạo task
+        loop.create_task(main())
+        loop.run_forever()
+    except RuntimeError:
+        # Không có loop, tạo mới
         asyncio.run(main())
-    except RuntimeError as e:
-        if "already running" in str(e):
-            logger.warning("⚠️ Event loop đã chạy, tạo loop mới...")
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            loop.run_until_complete(main())
-        else:
-            raise
