@@ -30,7 +30,6 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# ── KIỂM TRA TOKEN ──────────────────────────────────────
 if not TOKEN:
     logger.error("❌ KHÔNG TÌM THẤY BOT_TOKEN!")
     sys.exit(1)
@@ -38,7 +37,7 @@ if not TOKEN:
 logger.info(f"✅ Bot Token: {TOKEN[:10]}...")
 
 # ═══════════════════════════════════════════════════════════
-# ── PHẦN 1: USER MANAGER (từ config.py) ─────────────────
+# ── USER MANAGER ──────────────────────────────────────────
 # ═══════════════════════════════════════════════════════════
 
 class UserManager:
@@ -69,11 +68,9 @@ class UserManager:
     def add_user(self, user_id, username, expiry_days=30, role='user'):
         if str(user_id) in self.users:
             return False, "User đã tồn tại!"
-        
         key_raw = f"{user_id}_{username}_{time.time()}"
         key = hashlib.sha256(key_raw.encode()).hexdigest()[:16]
         expiry = (datetime.now() + timedelta(days=expiry_days)).isoformat()
-        
         self.users[str(user_id)] = {
             'user_id': user_id,
             'username': username,
@@ -98,15 +95,12 @@ class UserManager:
         user_id = str(user_id)
         if user_id not in self.users:
             return False, "❌ User chưa được đăng ký! Liên hệ admin @hoangquan280"
-        
         user = self.users[user_id]
         if key and user.get('key') != key:
             return False, "❌ Key không hợp lệ!"
-        
         expiry = datetime.fromisoformat(user['expiry'])
         if expiry < datetime.now():
             return False, f"❌ Key đã hết hạn! ({expiry.strftime('%d/%m/%Y')})"
-        
         user['total_requests'] = user.get('total_requests', 0) + 1
         user['last_active'] = datetime.now().isoformat()
         self.save_config()
@@ -142,7 +136,7 @@ class UserManager:
         return True, new_expiry
 
 # ═══════════════════════════════════════════════════════════
-# ── PHẦN 2: PREDICTION SYSTEM (từ prediction_system.py) ──
+# ── PREDICTION SYSTEM (150 THUẬT TOÁN) ──────────────────
 # ═══════════════════════════════════════════════════════════
 
 class UltraPredictionSystem:
@@ -662,7 +656,7 @@ class UltraPredictionSystem:
             logger.warning(f"⚠️ Lỗi tải lịch sử: {e}")
 
 # ═══════════════════════════════════════════════════════════
-# ── PHẦN 3: KHỞI TẠO USER MANAGER & PREDICTION SYSTEM ──
+# ── KHỞI TẠO ──────────────────────────────────────────────
 # ═══════════════════════════════════════════════════════════
 
 user_manager = UserManager()
@@ -679,7 +673,7 @@ last_session = None
 last_data = None
 cache_data = None
 
-# ── QUẢN LÝ CACHE ──────────────────────────────────────────
+# ── FUNCTIONS ──────────────────────────────────────────────
 def load_cache():
     global cache_data
     try:
@@ -700,21 +694,12 @@ def save_cache(data):
     except Exception as e:
         logger.warning(f"⚠️ Không thể lưu cache: {e}")
 
-# ── LẤY DỮ LIỆU TỪ API ──────────────────────────────────
 async def fetch_history():
     global last_session, last_data, cache_data
-    
     try:
         logger.info("🔄 Đang lấy dữ liệu từ API...")
         async with aiohttp.ClientSession() as session:
-            async with session.get(
-                API_HISTORY,
-                headers={
-                    'Accept': 'application/json',
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-                },
-                timeout=10
-            ) as response:
+            async with session.get(API_HISTORY, headers={'Accept': 'application/json', 'User-Agent': 'Mozilla/5.0'}, timeout=10) as response:
                 if response.status == 200:
                     data = await response.json()
                     if data.get('status') == 'OK':
@@ -748,11 +733,9 @@ async def fetch_history():
                 return valid
     return None
 
-# ── XỬ LÝ DỮ LIỆU ──────────────────────────────────────
 def process_data(data):
     if not data:
         return None
-    
     phien = data.get('phiên') or data.get('phien', '--')
     d1 = data.get('d1', 0)
     d2 = data.get('d2', 0)
@@ -791,53 +774,33 @@ def process_data(data):
         'ly_do': pred.get('reasons', [])[:3]
     }
 
-# ── DECORATOR KIỂM TRA QUYỀN ───────────────────────────
+# ── DECORATOR AUTH ──────────────────────────────────────
 def require_auth(func):
     async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
         user_id = update.effective_user.id
         is_valid, result = user_manager.check_user(user_id)
         if not is_valid:
-            keyboard = [
-                [InlineKeyboardButton("🔑 Đăng ký key", callback_data='register')],
-                [InlineKeyboardButton("📱 Liên hệ admin", url='https://t.me/hoangquan280')]
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            await update.message.reply_text(
-                f"{result}\n\n🆔 ID của bạn: `{user_id}`",
-                parse_mode='Markdown',
-                reply_markup=reply_markup
-            )
+            keyboard = [[InlineKeyboardButton("🔑 Đăng ký key", callback_data='register')], [InlineKeyboardButton("📱 Liên hệ admin", url='https://t.me/hoangquan280')]]
+            await update.message.reply_text(f"{result}\n\n🆔 ID: `{user_id}`", parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
             return
         return await func(update, context, *args, **kwargs)
     return wrapper
 
 # ═══════════════════════════════════════════════════════════
-# ── PHẦN 4: BOT COMMANDS ──────────────────────────────────
+# ── BOT COMMANDS ──────────────────────────────────────────
 # ═══════════════════════════════════════════════════════════
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     username = update.effective_user.username or f"user_{user_id}"
     is_valid, result = user_manager.check_user(user_id)
-    
     if not is_valid:
-        keyboard = [
-            [InlineKeyboardButton("🔑 Đăng ký key", callback_data='register')],
-            [InlineKeyboardButton("📱 Liên hệ admin", url='https://t.me/hoangquan280')]
-        ]
-        await update.message.reply_text(
-            f"🎲 *CHÀO {username}!*\n\n❌ Bạn chưa được đăng ký!\n🆔 ID: `{user_id}`\n\n📌 Liên hệ admin để lấy key.",
-            parse_mode='Markdown',
-            reply_markup=InlineKeyboardMarkup(keyboard)
-        )
+        keyboard = [[InlineKeyboardButton("🔑 Đăng ký key", callback_data='register')], [InlineKeyboardButton("📱 Liên hệ admin", url='https://t.me/hoangquan280')]]
+        await update.message.reply_text(f"🎲 *CHÀO {username}!*\n\n❌ Bạn chưa được đăng ký!\n🆔 ID: `{user_id}`\n\n📌 Liên hệ admin để lấy key.", parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
         return
-    
     user_info = result
     expiry = datetime.fromisoformat(user_info['expiry']).strftime('%d/%m/%Y')
-    await update.message.reply_text(
-        f"🎲 *CHÀO {username}!*\n\n✅ *Đã xác thực!*\n🆔 ID: `{user_id}`\n👤 Vai trò: {user_info.get('role', 'user').upper()}\n📅 Hạn key: {expiry}\n🧠 Số model: {len(prediction_system.models)}\n\n📌 *Lệnh:*\n/predict - Dự đoán\n/stats - Thống kê\n/patterns - Pattern\n/models - Hiệu suất\n/live - Live update\n/info - Thông tin user\n/help - Hướng dẫn",
-        parse_mode='Markdown'
-    )
+    await update.message.reply_text(f"🎲 *CHÀO {username}!*\n\n✅ *Đã xác thực!*\n🆔 ID: `{user_id}`\n👤 Vai trò: {user_info.get('role', 'user').upper()}\n📅 Hạn key: {expiry}\n🧠 Số model: {len(prediction_system.models)}\n\n📌 *Lệnh:*\n/predict - Dự đoán\n/stats - Thống kê\n/patterns - Pattern\n/models - Hiệu suất\n/live - Live update\n/info - Thông tin user\n/help - Hướng dẫn", parse_mode='Markdown')
 
 async def register(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -846,22 +809,17 @@ async def register(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if is_valid:
         await update.message.reply_text("✅ Bạn đã có key! Dùng /info để xem.")
         return
-    
     args = context.args
     if not args:
         await update.message.reply_text(f"❌ Cú pháp: `/register <key>`\n🆔 ID: `{user_id}`", parse_mode='Markdown')
         return
-    
     key = args[0]
     success, result = user_manager.add_user(user_id, username, expiry_days=30, role='user')
     if success:
         user_data = user_manager.users[str(user_id)]
         user_data['key'] = key
         user_manager.save_config()
-        await update.message.reply_text(
-            f"✅ *ĐĂNG KÝ THÀNH CÔNG!*\n🔑 Key: `{key}`\n📅 Hạn: 30 ngày\n📌 Dùng /predict để bắt đầu!",
-            parse_mode='Markdown'
-        )
+        await update.message.reply_text(f"✅ *ĐĂNG KÝ THÀNH CÔNG!*\n🔑 Key: `{key}`\n📅 Hạn: 30 ngày\n📌 Dùng /predict để bắt đầu!", parse_mode='Markdown')
     else:
         await update.message.reply_text(f"❌ {result}")
 
@@ -871,43 +829,33 @@ async def info(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not user_info:
         await update.message.reply_text("❌ Chưa đăng ký! Dùng /register <key>")
         return
-    
     expiry = datetime.fromisoformat(user_info['expiry'])
     days_left = (expiry - datetime.now()).days
-    await update.message.reply_text(
-        f"👤 *THÔNG TIN USER*\n━━━━━━━━━━━━━━━━━━\n🆔 ID: `{user_id}`\n🔑 Key: `{user_info.get('key', 'N/A')}`\n👤 Role: {user_info.get('role', 'user').upper()}\n📅 Hạn: {expiry.strftime('%d/%m/%Y')}\n⏳ Còn: {days_left} ngày\n📈 Lượt dùng: {user_info.get('total_requests', 0)}",
-        parse_mode='Markdown'
-    )
+    await update.message.reply_text(f"👤 *THÔNG TIN USER*\n━━━━━━━━━━━━━━━━━━\n🆔 ID: `{user_id}`\n🔑 Key: `{user_info.get('key', 'N/A')}`\n👤 Role: {user_info.get('role', 'user').upper()}\n📅 Hạn: {expiry.strftime('%d/%m/%Y')}\n⏳ Còn: {days_left} ngày\n📈 Lượt dùng: {user_info.get('total_requests', 0)}", parse_mode='Markdown')
 
 @require_auth
 async def predict(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("⏳ Đang lấy dữ liệu từ API...")
     data = await fetch_history()
     if not data:
-        await update.message.reply_text("❌ Không thể lấy dữ liệu!\n🔄 Đang thử lại...\n📌 Kiểm tra API: https://web-tool-4ej3.onrender.com/api/lc79/history")
+        await update.message.reply_text("❌ Không thể lấy dữ liệu!\n🔄 Đang thử lại...")
         return
-    
     result = process_data(data)
     if not result:
         await update.message.reply_text("❌ Lỗi xử lý dữ liệu!")
         return
-    
-    msg = (f"🎲 *PHIÊN #{result['phien']}*\n━━━━━━━━━━━━━━━━━━\n🎯 {result['d1']}-{result['d2']}-{result['d3']} = {result['tong']}\n✅ KQ: {result['ket_qua']}\n━━━━━━━━━━━━━━━━━━\n🔮 *Dự đoán:* {result['du_doan']}\n📈 Độ tin cậy: {result['do_tin_cay']}%\n📌 {result['status']}\n")
+    msg = f"🎲 *PHIÊN #{result['phien']}*\n━━━━━━━━━━━━━━━━━━\n🎯 {result['d1']}-{result['d2']}-{result['d3']} = {result['tong']}\n✅ KQ: {result['ket_qua']}\n━━━━━━━━━━━━━━━━━━\n🔮 *Dự đoán:* {result['du_doan']}\n📈 Độ tin cậy: {result['do_tin_cay']}%\n📌 {result['status']}\n"
     if result['ly_do']:
         msg += f"\n💡 Lý do:\n"
         for i, reason in enumerate(result['ly_do'], 1):
             msg += f"   {i}. {reason}\n"
-    
     keyboard = [[InlineKeyboardButton("🔄 Dự đoán lại", callback_data='predict')], [InlineKeyboardButton("📊 Thống kê", callback_data='stats')]]
     await update.message.reply_text(msg, parse_mode='Markdown', reply_markup=InlineKeyboardMarkup(keyboard))
 
 @require_auth
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     stats_data = prediction_system.get_stats()
-    await update.message.reply_text(
-        f"📊 *THỐNG KÊ*\n━━━━━━━━━━━━━━━━━━\n📌 Tổng phiên: {stats_data['total_sessions']}\n🎯 Tài: {stats_data['tai_count']} ({stats_data['tai_percentage']:.1f}%)\n🎯 Xỉu: {stats_data['xiu_count']} ({stats_data['xiu_percentage']:.1f}%)\n━━━━━━━━━━━━━━━━━━\n✅ Đúng: {stats_data['correct_predictions']}\n❌ Sai: {stats_data['wrong_predictions']}\n📈 Tỉ lệ: {stats_data['prediction_accuracy']:.1f}%\n🔥 Streak: {stats_data['current_streak']}\n━━━━━━━━━━━━━━━━━━\n🧠 Model: {stats_data['model_count']}\n🧩 Pattern: {stats_data['pattern_count']}",
-        parse_mode='Markdown'
-    )
+    await update.message.reply_text(f"📊 *THỐNG KÊ*\n━━━━━━━━━━━━━━━━━━\n📌 Tổng phiên: {stats_data['total_sessions']}\n🎯 Tài: {stats_data['tai_count']} ({stats_data['tai_percentage']:.1f}%)\n🎯 Xỉu: {stats_data['xiu_count']} ({stats_data['xiu_percentage']:.1f}%)\n━━━━━━━━━━━━━━━━━━\n✅ Đúng: {stats_data['correct_predictions']}\n❌ Sai: {stats_data['wrong_predictions']}\n📈 Tỉ lệ: {stats_data['prediction_accuracy']:.1f}%\n🔥 Streak: {stats_data['current_streak']}\n━━━━━━━━━━━━━━━━━━\n🧠 Model: {stats_data['model_count']}\n🧩 Pattern: {stats_data['pattern_count']}", parse_mode='Markdown')
 
 @require_auth
 async def patterns(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -955,17 +903,10 @@ async def live_update(context: ContextTypes.DEFAULT_TYPE):
     result = process_data(data)
     if not result:
         return
-    await context.bot.send_message(
-        chat_id=chat_id,
-        text=f"🎲 #{result['phien']}\n🎯 {result['d1']}-{result['d2']}-{result['d3']}\n📊 {result['ket_qua']} | 🔮 {result['du_doan']} ({result['do_tin_cay']}%)\n📌 {result['status']}",
-        parse_mode='Markdown'
-    )
+    await context.bot.send_message(chat_id=chat_id, text=f"🎲 #{result['phien']}\n🎯 {result['d1']}-{result['d2']}-{result['d3']}\n📊 {result['ket_qua']} | 🔮 {result['du_doan']} ({result['do_tin_cay']}%)\n📌 {result['status']}", parse_mode='Markdown')
 
 async def help(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text(
-        "🎲 *HƯỚNG DẪN*\n\n/predict - Dự đoán phiên hiện tại\n/stats - Thống kê chi tiết\n/patterns - 50 pattern phổ biến\n/models - Hiệu suất 150 models\n/live - Bật live update\n/info - Thông tin user\n/register <key> - Đăng ký key\n\n📡 API: https://web-tool-4ej3.onrender.com/api/lc79/history",
-        parse_mode='Markdown'
-    )
+    await update.message.reply_text("🎲 *HƯỚNG DẪN*\n\n/predict - Dự đoán phiên hiện tại\n/stats - Thống kê chi tiết\n/patterns - 50 pattern phổ biến\n/models - Hiệu suất 150 models\n/live - Bật live update\n/info - Thông tin user\n/register <key> - Đăng ký key\n\n📡 API: https://web-tool-4ej3.onrender.com/api/lc79/history", parse_mode='Markdown')
 
 # ── ADMIN COMMANDS ──────────────────────────────────────
 async def admin_add_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -1029,7 +970,7 @@ async def button_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text(f"🔑 *ĐĂNG KÝ*\n\n🆔 ID: `{update.effective_user.id}`\n\n📱 Liên hệ admin: @hoangquan280\nSau đó gửi: `/register <key>`", parse_mode='Markdown')
 
 # ═══════════════════════════════════════════════════════════
-# ── PHẦN 5: MAIN ──────────────────────────────────────────
+# ── MAIN ──────────────────────────────────────────────────
 # ═══════════════════════════════════════════════════════════
 
 async def main():
@@ -1053,13 +994,32 @@ async def main():
     app.add_handler(CommandHandler("extend", admin_extend))
     app.add_handler(CallbackQueryHandler(button_callback))
     
+    # Xóa webhook cũ - tránh conflict
     await app.bot.delete_webhook(drop_pending_updates=True)
     logger.info("✅ Đã xóa webhook")
     
+    # Chạy polling với cơ chế retry
     await app.initialize()
     await app.start()
-    await app.updater.start_polling(allowed_updates=Update.ALL_TYPES, drop_pending_updates=True, poll_interval=1.0, timeout=30)
-    logger.info("🔄 Bot đang chạy polling...")
+    
+    max_retries = 5
+    for attempt in range(max_retries):
+        try:
+            await app.updater.start_polling(
+                allowed_updates=Update.ALL_TYPES,
+                drop_pending_updates=True,
+                poll_interval=1.0,
+                timeout=30
+            )
+            logger.info("🔄 Bot đang chạy polling...")
+            break
+        except Exception as e:
+            if "Conflict" in str(e) and attempt < max_retries - 1:
+                logger.warning(f"⚠️ Conflict detected! Retry {attempt+1}/{max_retries} in 5s...")
+                await asyncio.sleep(5)
+                await app.bot.delete_webhook(drop_pending_updates=True)
+            else:
+                raise
     
     try:
         while True:
@@ -1071,10 +1031,15 @@ async def main():
         await app.stop()
         await app.shutdown()
 
+# ── ENTRY POINT ──────────────────────────────────────────
 if __name__ == "__main__":
+    # Chạy với event loop mới để tránh conflict
     try:
-        loop = asyncio.get_running_loop()
-        loop.create_task(main())
-        loop.run_forever()
-    except RuntimeError:
         asyncio.run(main())
+    except RuntimeError as e:
+        if "already running" in str(e):
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(main())
+        else:
+            raise
